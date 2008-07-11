@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="iso-8859-2"?>
+<?xml-stylesheet title="XSL_formatting" type="text/xsl" href="rss.xsl"?>
+<rss version="2.0">
+<channel>
+	<title>RTV - Vse novice</title>
+	<link>http://www.rtvslo.si/</link>
+	<description>novice...</description>
+	<category>Vse novice</category>
+	<copyright>Copyright 2004-2008 RTV (webmaster@rtvslo.si)</copyright>
+	<managingEditor>webmaster@rtvslo.si</managingEditor>
+	<lastBuildDate>Tue, 10 Jun 2008 15:59:11 +0200</lastBuildDate>
+	<generator>webmaster@rtvslo.si</generator>
+	<image>
+		<title>RTV</title>
+		<url>http://www.rtvslo.si/feeds/rss_tiny.gif</url>
+		<height>22</height><width>78</width>
+		<link>http://www.rtvslo.si</link>
+	</image>
+	<item>
+		<title>George Bush</title>
+		<pubDate>Tue, 10 Jun 2008 15:51:37 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=26&amp;c_id=175735&amp;rss=1#1213105897</link>
+		<enclosure url="http://www.rtvslo.si/upload/Svet/brdo1_3_fp2.jpg" length="3959" type="image/jpeg" />
+		<description><![CDATA[Ironično je, gospod premier, da ste bili pred 20 leti vi v zaporu.]]></description>
+	</item>
+	<item>
+		<title>Brezigarjeva: Tožilstvo ni edini krivec</title>
+		<pubDate>Tue, 10 Jun 2008 15:44:20 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=175734&amp;rss=1#1213105460</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/bbrez_fp2.jpg" length="3110" type="image/jpeg" />
+		<description><![CDATA[Barbara Brezigar je ob predstavitvi dela tožilstva dejala, da pregon gospodarskega kriminala ni odvisen samo od tožilcev, ampak tudi od policije in sodstva.]]></description>
+	</item>
+	<item>
+		<title>Delnice Save Re v četrtek na borzo</title>
+		<pubDate>Tue, 10 Jun 2008 15:36:23 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=4&amp;c_id=175732&amp;rss=1#1213104983</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/savare_fp2.jpg" length="2858" type="image/jpeg" />
+		<description><![CDATA[Uprava Ljubljanske borze je odločila, da se bo trgovanje z delnicami Pozavarovalnice Sava začelo v četrtek, 12. junija.]]></description>
+	</item>
+	<item>
+		<title>Voda začela iztekati iz popotresnega jezera</title>
+		<pubDate>Tue, 10 Jun 2008 15:18:49 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=2&amp;c_id=175733&amp;rss=1#1213103929</link>
+		<enclosure url="http://www.rtvslo.si/upload/Svet/pek31_quake-_0610_11_1_fp2.jpg" length="3872" type="image/jpeg" />
+		<description><![CDATA[Iz jezera, ki je nastalo po rušilnem potresu na Kitajskem, je končno začela iztekati voda, ko so s pomočjo dinamita in buldožerjev očistili kanale.]]></description>
+	</item>
+	<item>
+		<title>Slovo španske balerine Mariemme</title>
+		<pubDate>Tue, 10 Jun 2008 15:07:28 +0200</pubDate>
+		<link>http://www.rtvslo.si/kultura/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=3&amp;c_id=43295&amp;rss=1#1213103248</link>
+		<enclosure url="http://www.rtvslo.si/upload/Kultura/drugo/mariemma_fp2.jpg" length="4983" type="image/jpeg" />
+		<description><![CDATA[V Madridu je v starosti 91 let umrla plesalka in koreografinja Mariemma, ena najpomembnejših španskih baletnih umetnic 20. stoletja.]]></description>
+	</item>
+	<item>
+		<title>Deset let spominov na Martina Lutra</title>
+		<pubDate>Tue, 10 Jun 2008 14:48:55 +0200</pubDate>
+		<link>http://www.rtvslo.si/kultura/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=4&amp;c_id=43293&amp;rss=1#1213102135</link>
+		<enclosure url="http://www.rtvslo.si/upload/Kultura/likovna%20umetnost/luter_fp2.jpg" length="4193" type="image/jpeg" />
+		<description><![CDATA[Pri nas smo zaznamovali 500-letnico Trubarjevega rojstva, v Nemčiji pa se je začelo desetletno praznovanje 500-letnice protestantizma.]]></description>
+	</item>
+	<item>
+		<title>Na lastni poroki se je zaljubila ... v natakarja</title>
+		<pubDate>Tue, 10 Jun 2008 14:43:04 +0200</pubDate>
+		<link>http://www.rtvslo.si/zabava/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=35125&amp;rss=1#1213101784</link>
+		<enclosure url="http://www.rtvslo.si/upload/zabava/nevesta2_fp2.jpg" length="4331" type="image/jpeg" />
+		<description><![CDATA[34-letna nevesta Andrea McMillan se je na generalki za lastno poroko zaljubila v natakarja Joseja Miguela in zapustila zaročenca.]]></description>
+	</item>
+	<item>
+		<title>Vreme se je popravilo, a na borzi še pada</title>
+		<pubDate>Tue, 10 Jun 2008 14:38:16 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=4&amp;c_id=175729&amp;rss=1#1213101496</link>
+		<enclosure url="http://www.rtvslo.si/upload/Svet/mc_fp2.jpg" length="5479" type="image/jpeg" />
+		<description><![CDATA[Krepek padec delnic Mercatorja, Pivovarne Laško in Save je povzročil največji enodnevni padec na Ljubljanski borzi v zadnjih dveh mesecih.]]></description>
+	</item>
+	<item>
+		<title>Borzniki: Obdavčitev finančnih instrumentov škodljiva</title>
+		<pubDate>Tue, 10 Jun 2008 14:37:11 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=4&amp;c_id=175726&amp;rss=1#1213101431</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/borza_8_fp2.jpg" length="4859" type="image/jpeg" />
+		<description><![CDATA[Predlog zakona o davku od dobička od odsvojitve izvedenih finančnih instrumentov je po mnenju članov borze vrednostnih papirjev neustrezen.]]></description>
+	</item>
+	<item>
+		<title>Ne pričakujte snežne beline iz oglasov</title>
+		<pubDate>Tue, 10 Jun 2008 14:37:07 +0200</pubDate>
+		<link>http://www.rtvslo.si/zabava/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=21&amp;c_id=35124&amp;rss=1#1213101427</link>
+		<enclosure url="http://www.rtvslo.si/upload/zabava/smile_fp2.jpg" length="2851" type="image/jpeg" />
+		<description><![CDATA[Stara sem 28 let. Ker redno pijem kavo in kadim, imam malce obarvane zobe.]]></description>
+	</item>
+	<item>
+		<title>Slovenija ohranila rating pri DB2b</title>
+		<pubDate>Tue, 10 Jun 2008 14:35:39 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=4&amp;c_id=175725&amp;rss=1#1213101339</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/folk_2_fp2.jpg" length="6022" type="image/jpeg" />
+		<description><![CDATA[Največja bonitetna hiša na svetu Dun &amp; Bradstreet je v junijskem poročilu ohranila rating Slovenije pri DB2b na 28. mestu.]]></description>
+	</item>
+	<item>
+		<title>Moje pesmi, moje sanje po gorenjsko</title>
+		<pubDate>Tue, 10 Jun 2008 14:35:32 +0200</pubDate>
+		<link>http://www.rtvslo.si/kultura/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=15&amp;c_id=43294&amp;rss=1#1213101332</link>
+		<enclosure url="http://www.rtvslo.si/upload/Kultura/film/7_3_fp2.jpg" length="3215" type="image/jpeg" />
+		<description><![CDATA[Redovnica Maria Rainer se poroči z Georgom vom Trappom in skupaj z njegovimi otroci pobegne pred nacisti iz Avstrije v Švico. Zveni znano?]]></description>
+	</item>
+	<item>
+		<title>Zoja uživa v lepi nogometni igri</title>
+		<pubDate>Tue, 10 Jun 2008 14:33:48 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=40&amp;c_id=175727&amp;rss=1#1213101228</link>
+		<enclosure url="http://www.rtvslo.si/upload/sport/kviz/zoja_trobec_fp2.jpg" length="3561" type="image/jpeg" />
+		<description><![CDATA[Predstavljamo vam dekle, ki bi si ljubezen pravzaprav morala najti med košarkarji, a jo je očaral vratar slovenske nogometne reprezentance.]]></description>
+	</item>
+	<item>
+		<title>S severa Nemčije na Ptuj in v Haloze</title>
+		<pubDate>Tue, 10 Jun 2008 14:30:05 +0200</pubDate>
+		<link>http://www.rtvslo.si/kultura/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=43292&amp;rss=1#1213101005</link>
+		<enclosure url="http://www.rtvslo.si/upload/Kultura/film/jan_oeltjen_-_artist_art_fp2.jpg" length="4559" type="image/jpeg" />
+		<description><![CDATA[V Nemčiji rojeni slikar Jan Oeltjen je znan predvsem po pokrajinskih motivih, v katerih je upodabljal Ptujsko polje in Haloze.]]></description>
+	</item>
+	<item>
+		<title>Kate ne počitnikuje poceni</title>
+		<pubDate>Tue, 10 Jun 2008 14:25:02 +0200</pubDate>
+		<link>http://www.rtvslo.si/zabava/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=2&amp;c_id=35123&amp;rss=1#1213100702</link>
+		<enclosure url="http://www.rtvslo.si/upload/zabava/moss_15_fp2.jpg" length="3633" type="image/jpeg" />
+		<description><![CDATA[Britanec Phillip Green je Kate Moss podaril potovanje, vredno 100.000 britanskih funtov, saj meni, da manekenka preveč gara.]]></description>
+	</item>
+	<item>
+		<title>Zakaj Euro ni čas, da ženske spokamo</title>
+		<pubDate>Tue, 10 Jun 2008 14:23:01 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=40&amp;c_id=175723&amp;rss=1#1213100581</link>
+		<enclosure url="http://www.rtvslo.si/upload/sport/nogomet/fuzbal_1_fp2.jpg" length="5042" type="image/jpeg" />
+		<description><![CDATA[Nogometni vodič za ženske. Ženske alternative za Euro. Kar koli, povezano z Ronaldom. Jaz osebno sem rahlo užaljena.]]></description>
+	</item>
+	<item>
+		<title>24-letnik osumljen posilstva 45-letnice</title>
+		<pubDate>Tue, 10 Jun 2008 14:22:44 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=8&amp;c_id=175722&amp;rss=1#1213100564</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/policija_45_fp2.jpg" length="4584" type="image/jpeg" />
+		<description><![CDATA[Zaradi suma posilstva 45-letnice iz okolice Ilirske Bistrice so postojnski policisti prijeli 24-letnega državljana Kosova.]]></description>
+	</item>
+	<item>
+		<title>Hrvati v Sloveniji tožijo zaradi &quot;teme&quot;</title>
+		<pubDate>Tue, 10 Jun 2008 14:02:46 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=40&amp;c_id=175721&amp;rss=1#1213099366</link>
+		<enclosure url="http://www.rtvslo.si/upload/Zanimivosti/television_fp2.jpg" length="3207" type="image/jpeg" />
+		<description><![CDATA[Zveza hrvatskih društev v Sloveniji je na sodišču vložila zahtevo za odpravo zatemnjenosti HRT 2 v slovenskih kabelskih sistemih.]]></description>
+	</item>
+	<item>
+		<title>Zavod grozi z ustavno presojo</title>
+		<pubDate>Tue, 10 Jun 2008 13:46:11 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=175719&amp;rss=1#1213098371</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/podobnik_47_fp2.jpg" length="4755" type="image/jpeg" />
+		<description><![CDATA[Zavod 25. junij je pred sredino sejo mešane slovensko-hrvaške komisije za mejo ponovil, da so izhodišča, ki jih je vlada sprejela aprila, škodljiva.]]></description>
+	</item>
+	<item>
+		<title>Odkrili pet romunskih tatov</title>
+		<pubDate>Tue, 10 Jun 2008 13:40:03 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=8&amp;c_id=175718&amp;rss=1#1213098003</link>
+		<enclosure url="http://www.rtvslo.si/upload/Crna%20kronika_pozari/polcija_fp2.jpg" length="3924" type="image/jpeg" />
+		<description><![CDATA[S policijske uprave Krško so sporočili, da so podali kazenske ovadbe za pet Romunov, ki so v zadnjih dveh mesecih izvajali drzne tatvine.]]></description>
+	</item>
+	<item>
+		<title>Povpraševanje po nafti upada</title>
+		<pubDate>Tue, 10 Jun 2008 13:34:12 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=4&amp;c_id=175716&amp;rss=1#1213097652</link>
+		<enclosure url="http://www.rtvslo.si/upload/Svet/protesti__nepal_fp2.jpg" length="5199" type="image/jpeg" />
+		<description><![CDATA[Mednarodna agencija za energijo predvideva, da bo rast povpraševanja po nafti letos najpočasnejša v zadnjih šestih letih.]]></description>
+	</item>
+	<item>
+		<title>Trije osumljeni tihotapljenja ljudi</title>
+		<pubDate>Tue, 10 Jun 2008 13:32:22 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=8&amp;c_id=175713&amp;rss=1#1213097542</link>
+		<enclosure url="http://www.rtvslo.si/upload/Evropska_unija/meja_kolona_fp2.jpg" length="5433" type="image/jpeg" />
+		<description><![CDATA[Policijska uprava Ljubljana je na okrožno državno tožilstvo podala kazensko ovadbo zoper tri državljane Kosova, osumljene tihotapljenja ljudi.]]></description>
+	</item>
+	<item>
+		<title>Uefa: Gol van Nistelrooya regularen</title>
+		<pubDate>Tue, 10 Jun 2008 13:29:10 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=40&amp;c_id=175714&amp;rss=1#1213097350</link>
+		<enclosure url="http://www.rtvslo.si/upload/sport/nogomet/gol_10_fp2.jpg" length="5986" type="image/jpeg" />
+		<description><![CDATA[Po izredni predstavi v Bernu se je pojavilo vprašanje, ali je Ruud van Nistelrooy zatresel italijansko mrežo na pravilen način.]]></description>
+	</item>
+	<item>
+		<title>Lauri Bush je všeč Groharjev Sejalec</title>
+		<pubDate>Tue, 10 Jun 2008 14:33:58 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=38&amp;c_id=175717&amp;rss=1#1213101238</link>
+		<enclosure url="http://www.rtvslo.si/upload/Svet/dame2_fp2.jpg" length="4438" type="image/jpeg" />
+		<description><![CDATA[Prva dama ZDA Laura Bush si je v družbi prve dame Slovenije Barbare Miklič Türk in premierjeve zaročenke Urške Bačovnik ogledala razstavo impresionistov.]]></description>
+	</item>
+	<item>
+		<title>Zaradi vrha EU-ZDA zapore do 17.00</title>
+		<pubDate>Tue, 10 Jun 2008 12:55:06 +0200</pubDate>
+		<link>http://www.rtvslo.si/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=175711&amp;rss=1#1213095306</link>
+		<enclosure url="http://www.rtvslo.si/upload/Slovenija/zemljevid_13_fp2.jpg" length="4994" type="image/jpeg" />
+		<description><![CDATA[Številne prometne zapore so na ljubljanskih in gorenjskih cestah že povzročile zastoje.]]></description>
+	</item>
+	<item>
+		<title>Pellizotti prvo ime Dirke po Sloveniji   </title>
+		<pubDate>Tue, 10 Jun 2008 12:44:11 +0200</pubDate>
+		<link>http://www.rtvslo.si/sport/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=13&amp;c_id=39763&amp;rss=1#1213094651</link>
+		<enclosure url="http://www.rtvslo.si/upload/sport/pellizotti_fp2.jpg" length="5762" type="image/jpeg" />
+		<description><![CDATA[S startom na Prešernovem trgu v Ljubljani se bo v sredo začela 15. kolesarska Dirka po Sloveniji, na kateri pa ne bo branilca naslova Tomaža Noseta (Adria Mobil).]]></description>
+	</item>
+	<item>
+		<title>MMC že podelil prvih 50 evrov</title>
+		<pubDate>Tue, 10 Jun 2008 11:16:32 +0200</pubDate>
+		<link>http://www.rtvslo.si/zabava/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=35114&amp;rss=1#1213089392</link>
+		<enclosure url="http://www.rtvslo.si/upload/zabava/video1_fp2.jpg" length="4621" type="image/jpeg" />
+		<description><![CDATA[Prvi teden novega natečaja Moj video je prinesel zmagovalce v vseh razpisanih kategorijah. Tokrat je bil najboljši plavimodrec.]]></description>
+	</item>
+	<item>
+		<title>Real obupal nad prestopom Ronalda?</title>
+		<pubDate>Tue, 10 Jun 2008 10:59:10 +0200</pubDate>
+		<link>http://www.rtvslo.si/sport/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=39762&amp;rss=1#1213088350</link>
+		<enclosure url="http://www.rtvslo.si/upload/sport/nogomet/ronaldo_59_fp2.jpg" length="2952" type="image/jpeg" />
+		<description><![CDATA[Mednarodna nogometna zveza se je po pritožbi Manchestra Uniteda odločila, da bo preverila Realovo "snubljenje" Cristiana Ronalda.]]></description>
+	</item>
+	<item>
+		<title>Indija: Ko te začarajo ljudje</title>
+		<pubDate>Tue, 10 Jun 2008 08:43:59 +0200</pubDate>
+		<link>http://www.rtvslo.si/tureavanture/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=22&amp;c_id=1892&amp;rss=1#1213080239</link>
+		<enclosure url="http://www.rtvslo.si/upload/ture_avanture/za__etna_2_2_fp2.jpg" length="3781" type="image/jpeg" />
+		<enclosure url="http://www.rtvslo.si/upload/ture_avanture/za__etna_3_2_fp2.jpg" length="4175" type="image/jpeg" />
+		<enclosure url="http://www.rtvslo.si/upload/ture_avanture/za__etna_1_1_fp2.jpg" length="3048" type="image/jpeg" />
+		<description><![CDATA[Etnična, verska in jezikovna raznovrstnost. Naravne in kulturne lepote na eni ter umazana mesta in trušč na drugi strani. Indija in Indijci so za tujce pravi kulturni šok.]]></description>
+	</item>
+	<item>
+		<title>Šport v zgodovini 10. junija</title>
+		<pubDate>Mon, 09 Jun 2008 07:21:19 +0200</pubDate>
+		<link>http://www.rtvslo.si/sport/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=34&amp;c_id=28863&amp;rss=1#1212988879</link>
+		<enclosure url="http://www.rtvslo.si/upload/sport/nogomet/cafu_1_fp2.jpg" length="3430" type="image/jpeg" />
+		<description><![CDATA[Leta 1998 je Brazilija v uvodnem srečanju svetovnega nogometnega prvenstva v Franciji v skupini A premagala Škotsko z 2:1.]]></description>
+	</item>
+	<item>
+		<title>V Bordeaux na pokušino vina</title>
+		<pubDate>Mon, 09 Jun 2008 09:06:52 +0200</pubDate>
+		<link>http://www.rtvslo.si/tureavanture/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=1897&amp;rss=1#1212995212</link>
+		<enclosure url="http://www.rtvslo.si/upload/ture_avanture/vino_2_fp2.jpg" length="2721" type="image/jpeg" />
+		<description><![CDATA[Bordeaux v Franciji bo konec junija postal središče ljubiteljev vina, saj bodo že desetič organizirali Vinski festival.]]></description>
+	</item>
+	<item>
+		<title>Ženske obline &quot;oskrunile&quot; kulturno dediščino?</title>
+		<pubDate>Sun, 08 Jun 2008 22:21:37 +0200</pubDate>
+		<link>http://www.rtvslo.si/tureavanture/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=1896&amp;rss=1#1212956497</link>
+		<enclosure url="http://www.rtvslo.si/upload/Kultura/knjige/hidalgo_fp2.jpg" length="5519" type="image/jpeg" />
+		<description><![CDATA[Mehiških oblasti ne moti, da na prvi pogled gola zvezda telenovele oglašuje lepote zvezne države Hidalgo.]]></description>
+	</item>
+	<item>
+		<title>Poleti v Barcelono še ceneje  </title>
+		<pubDate>Sun, 08 Jun 2008 11:33:35 +0200</pubDate>
+		<link>http://www.rtvslo.si/tureavanture/modload.php?&amp;c_mod=rnews&amp;op=sections&amp;func=read&amp;c_menu=1&amp;c_id=1895&amp;rss=1#1212917615</link>
+		<enclosure url="http://www.rtvslo.si/upload/Kultura/film/park_guel_fp2.jpg" length="5564" type="image/jpeg" />
+		<description><![CDATA[Na Letališču Jožeta Pučnika Ljubljana bo 4. julija prvič pristalo letalo španskega nizkocenovnega prevoznika Clickair.]]></description>
+	</item>
+</channel>
+</rss>

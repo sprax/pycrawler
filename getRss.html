@@ -1,0 +1,44 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<title>Get Rss</title>
+<script src="js/lib/jquery.js" type="text/javascript"></script>
+<script type="text/javascript">
+//==== ==== ==== ==== 
+// - JQUERY
+//==== ==== ==== ==== 	
+function getRss() {
+	$("#okButton").attr("disabled","true").attr("value", "Please wait…")
+	$.get('py/goGetRss.py/index', {link:$("#link").val()}, function(txt) {
+		$("#gottenRSS").html(txt)
+		$("#okButton").attr("disabled","true").attr("value", "Please wait…")
+	 })
+}
+</script>
+<style type="text/css">
+<!--
+body {
+	background-color: #333333;
+}
+body,td,th {
+	font-family: Verdana, Arial, Helvetica, sans-serif;
+	font-size: 12px;
+	color: #FFFFFF;
+}
+-->
+</style></head>
+
+<body>
+<form action="py/goGetRss.py/index" id="form1" name="form1" method="GET">
+	<div align="center" id="dodajanje">
+		<h3>Paste a link to a news page</h3>
+		Like this: http://www.cnn.com/<br/>
+		<input type="input" name="link" id="link"/> <input type="button" id="okButton" onclick="" value="OK"/>
+		<div id="gottenRSS">
+		.
+		</div>
+	</div>
+</form>
+</body>
+</html>

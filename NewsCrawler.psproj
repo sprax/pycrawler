@@ -1,0 +1,124 @@
+[PyScripter]
+Version=1.9.9.2
+
+[Project]
+ClassName=TProjectRootNode
+StoreRelativePaths=TRUE
+
+[Project\ChildNodes]
+Count=2
+
+[Project\ChildNodes\Node0]
+ClassName=TProjectFilesNode
+
+[Project\ChildNodes\Node0\ChildNodes]
+Count=10
+
+[Project\ChildNodes\Node0\ChildNodes\Node0]
+ClassName=TProjectFolderNode
+Name=backup
+
+[Project\ChildNodes\Node0\ChildNodes\Node0\ChildNodes]
+Count=3
+
+[Project\ChildNodes\Node0\ChildNodes\Node0\ChildNodes\Node0]
+ClassName=TProjectFileNode
+FileName=$[Project-Path]py\backup\ena.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node0\ChildNodes\Node1]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\backup\getNews.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node0\ChildNodes\Node2]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\backup\goGetRss.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node1]
+ClassName=TProjectFolderNode
+Name=nekiModul
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes]
+Count=3
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes\Node0]
+ClassName=TProjectFolderNode
+Name=seEn
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes\Node0\ChildNodes]
+Count=2
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes\Node0\ChildNodes\Node0]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\nekiModul\seEn\__init__.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes\Node0\ChildNodes\Node1]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\nekiModul\seEn\tri.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes\Node1]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\nekiModul\__init__.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node1\ChildNodes\Node2]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\nekiModul\ena.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node2]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\dump.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node3]
+ClassName=TProjectFileNode
+FileName=$[Project-Path]py\dva.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node4]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\getNews.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node5]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\getNews2.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node6]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\goGetRss.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node7]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\linkList.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node8]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\prettySoup.py
+
+[Project\ChildNodes\Node0\ChildNodes\Node9]
+ClassName=TProjectFileNode
+FileName=d:\FAX\3. letnik\OS\WebCrawler\py\test1.py
+
+[Project\ChildNodes\Node1]
+ClassName=TProjectRunConfiguationsNode
+
+[Project\ChildNodes\Node1\ChildNodes]
+Count=1
+
+[Project\ChildNodes\Node1\ChildNodes\Node0]
+ClassName=TProjectRunConfiguationNode
+Name=Untitled
+
+[Project\ChildNodes\Node1\ChildNodes\Node0\RunConfig]
+EngineType=peRemote
+ReinitializeBeforeRun=FALSE
+WorkingDir=$[ActiveScript-Dir]
+WriteOutputToFile=FALSE
+OutputFileName=$[ActiveScript-NoExt].log
+AppendToFile=FALSE
+
+[Project\ChildNodes\Node1\ChildNodes\Node0\RunConfig\ExternalRun]
+Caption=External Run
+Description=Run script using an external Python Interpreter
+ApplicationName=$[PythonExe-Short]
+Parameters=$[ActiveScript-Short]
+WorkingDirectory=$[ActiveScript-Dir]
+ShortCut=0
+MessagesFormat=$[FileName] $[LineNumber]
+
