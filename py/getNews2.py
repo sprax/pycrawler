@@ -23,6 +23,13 @@ def repair(html):
 def getText(node):
     return [e for e in node.recursiveChildGenerator() if isinstance(e, unicode)]
 
+def getTagName(i):
+    try:
+        return i.name
+    except:
+        return "None"
+
+
 #==== ==== ==== ====
 #SUPER DADDY: IS THE THE DADDY THAT
 #IS THE FIRST COMMON, THAT HAS ENOUGHT TEXT IN HIM
@@ -46,7 +53,7 @@ def findSuperDaddy(node, amount=500):
 #==== ==== ==== ====
 def getNewsLength(title, link, html):
     name = link.split("/")[2].split(".")[1]
-    #html = urllib.urlopen(link).read()
+    html = urllib.urlopen(link).read()
     #html = open("html/%s.html" % name).read()
     html = re.sub("[\n{2,}\r]", "\t", html)
     html = re.sub("\s{2,}", " ", html)
@@ -63,15 +70,15 @@ def getNewsLength(title, link, html):
 #==== ==== ==== ====
 #OPEN
 #==== ==== ==== ====
-title, link = (u"Njavro in Krkovič nista pričala", "http://www.delo.si/clanek/62212")
+title, link = ("350 piglets die in truck crash", "http://edition.cnn.com/2008/WORLD/europe/06/11/germany.pigs.ap/index.html?eref=edition")
 name = link.split("/")[2].split(".")[1]
 p = urllib.urlopen(link).read()
 #p = open("html/%s.html" % name).read()
-amountExpected = 700
+amountExpected = 416
 p = BeautifulSoup(repair(pretty(p)))
 #TODO: Better title find
-titleNode = p.findAll(text=title)[1]
-s = titleNode.parent
+titleNode = p.findAll(text=title)[0]
+s = titleNode.parent.parent.parent
 
 #==== ==== ==== ====
 #1. IF ONE SIBLING HAS ENOUGHT TEXT,
@@ -85,7 +92,7 @@ for i in s.fetchNextSiblings():
             superDaddy = findSuperDaddy(i, amountExpected)
             #print "-" * 5, "\n", superDaddy, "-" * 5, "\n" * 3
             print "#" * 10
-            print "\n".join(getText(superDaddy))
+            print "\n".join([str(i) for i in superDaddy.contents if getTagName(i) != "div"])
             print "#" * 10
             break
 
@@ -96,7 +103,7 @@ print "$" * 5, "2", "$" * 5
 t = [getText(i) for i in s.fetchNextSiblings() if i != None]
 
 if sum([len(" ".join(i)) for i in t]) > amountExpected:
-    print "\n".join([" ".join(i) for i in t])
+    print "\n".join([str(i) for i in s.fetchNextSiblings() if i != None and getTagName(i) != "div"])
 
 #==== ==== ==== ====
 #3. IF CURRENT NODE HAS ENOUGHT TEXT
