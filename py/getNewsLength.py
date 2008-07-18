@@ -8,7 +8,7 @@ def izpljuni(i):
 title, link = (u"Njavro in Krkovič nista pričala", "http://www.delo.si/clanek/62212")
 
 
-for title, link in [("350 piglets die in truck crash", "http://edition.cnn.com/2008/WORLD/europe/06/11/germany.pigs.ap/index.html?eref=edition")]:
+for title, link in [("Dozens Killed In Sudan Plane Crash", "http://www.cbsnews.com/stories/2008/06/10/world/main4170047.shtml")]:
     html = urllib.urlopen(link).read()
     html = re.sub("\s{2,}", " ", html)
     html = re.sub("\n", " ", html)
@@ -18,10 +18,10 @@ for title, link in [("350 piglets die in truck crash", "http://edition.cnn.com/2
 
     foo = html.split(title.encode("UTF-8"))
     if len(foo) > 1:
-        bra = re.split("[A-Z](\w+\s){4,}[^\t\.\?\!]*[a-z]\.\s[A-Z]", foo[1])
+        bra = re.split("[A-Z](\w+\s){2,}[^\t\.\?\!]*[a-z]\.\s", foo[1])
         ostanek = " ".join(bra[1:])
         o = ostanek.split("\n\n")
         print len(o[0]), title, link
         print o[0]
 
-izpljuni(foo[1])
+#izpljuni(foo[1])

@@ -84,7 +84,7 @@ def getNews(title, link):
     #TODO: Better title find
     titleNode = p.find(text=title)
     s = titleNode
-    up = 5
+    up = 6
     #WHILE WE DONT FIND ENOUGHT TEXT OR WE DID GO TO HIGH UP
     #==== ==== ==== ====
     #1. IF ONE SIBLING HAS ENOUGHT TEXT,
