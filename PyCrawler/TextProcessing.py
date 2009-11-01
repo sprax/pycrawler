@@ -1,7 +1,7 @@
 """
 A simple set of functions for processing text.
 """
-#$Id:$
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"

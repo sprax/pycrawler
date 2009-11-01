@@ -2,7 +2,7 @@
 A wrapper around pycurl that implements politeness and passes
 documents into an AnalyzerChain
 """
-#$Id:$
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __credits__ = ["The libcurl Team"]

@@ -2,7 +2,7 @@
 A specialized form of of a priority queue built around python's heapq
 module and different from Queue.PriorityQueue.
 """
-# $Id:$
+# $Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"

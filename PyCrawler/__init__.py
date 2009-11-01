@@ -8,7 +8,7 @@ which links it follows.
 
 See PyCrawler/license.txt
 """
-#$Id:$
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"

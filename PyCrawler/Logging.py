@@ -6,7 +6,7 @@ locking between different tools all writing to stderr.
 This could possibly be replaced or improved by using python's new
 logging module by integrating it with multiprocessing.
 """
-#$Id:$
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
