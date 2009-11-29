@@ -15,8 +15,8 @@ import Queue
 import traceback
 import multiprocessing
 from time import time, sleep
+from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from random import random
-from Logging import ChangeLoggerContainer
 from TextProcessing import get_links
 
 URLinfo_type = "URLinfo"
@@ -30,14 +30,18 @@ class InvalidAnalyzer(Exception): pass
 
 class AnalyzerChainPositionConflict(Exception): pass
 
-class AnalyzerChain(ChangeLoggerContainer):
-    def __init__(self, logger):
+class AnalyzerChain(multiprocessing.Process):
+    name = "AnalyzerChain"
+    def __init__(self, go=None):
         """
-        Setup a ChangeLoggerContainer with an inQ and its own go Event
+        Setup inQ and go Event
         """
-        ChangeLoggerContainer.__init__(self, "AnalyzerChain", None, logger)
+        multiprocessing.Process.__init__(self, name=self.name)
         self.inQ  = multiprocessing.Queue(10)
+        self.go = go or multiprocessing.Event()
+        self.go.set()
         self.analyzers = {}
+        self.in_flight = 0
 
     def add_analyzer(self, position, analyzer, copies=1):
         """
@@ -63,70 +67,88 @@ class AnalyzerChain(ChangeLoggerContainer):
         # Put them in position in analyzer chain
         self.analyzers[position] = yzers
 
+    def log(self, priority=LOG_DEBUG, msg=None, step=None):
+        if msg is None: msg = self.msg(step)
+        syslog(priority, msg)
+
+    def msg(self, step=None):
+        return "%s%d in_flight, %d ever, %d inQ.qsize, %s" % (
+            step and "%s: " % step or "", self.in_flight, 
+            self.total_processed, self.inQ.qsize(), 
+            multiprocessing.active_children())
+
+    def stop(self):
+        """
+        Causes the AnalyzerChain to stop after processing all
+        in_flight requests.
+        """
+        self.log(LOG_NOTICE, "Executing clean stop")
+        self.go.clear()
+
     def run(self):
         """
         Gets an Analyzable object from inQ and feeds them into the
         chain of analyzers, which are its child processes.
         """
+        openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
         # Now prepare to run the chain
-        in_flight = 0
+        self.in_flight = 0
         self.total_processed = 0
-        self.set_msg_func(
-            lambda step: "%d in_flight, %d ever, %d inQ.qsize, %s" % (
-                in_flight, self.total_processed, self.inQ.qsize(), 
-                multiprocessing.active_children()))
-        self.log(3)
+        self.log()
         positions = self.analyzers.keys()
         positions.sort()
         if not positions: 
-            self.log(0, "run called without any analyzers")
+            self.log(msg="run called without any analyzers")
             return
         # start all the analyzers as children
         for pos in self.analyzers:
             for i in range(len(self.analyzers[pos])):
                 # instantiate and start instance of this analyzer
-                yzer = self.analyzers[pos][i](self.logger)
+                yzer = self.analyzers[pos][i]()
                 yzer.start()
                 self.analyzers[pos][i] = yzer
-        self.log(3)
+        self.log()
         # Now run the chain
-        self.log(2, "starting AnalyzerChain loop")
+        self.log(msg="starting AnalyzerChain loop")
         try:
-            while self.go.is_set() or in_flight > 0:
-                self.log(3)
+            while self.go.is_set() or self.in_flight > 0:
+                self.log(step="outer loop")
                 # list of Analyzable instances to carry through all
                 # positions in the chain
                 yzables_in  = []
                 try:
                     yzable = self.inQ.get_nowait()
                     yzables_in.append(yzable)
-                    in_flight += 1
+                    self.in_flight += 1
                     self.total_processed += 1
-                    self.log(3, "inQ gave yzable.type=" + yzable.type)
+                    self.log(msg="inQ gave yzable.type=" + yzable.type)
                 except Queue.Empty:
                     pass
                 for pos in positions:
-                    self.log(3)
+                    self.log(step="for pos in positions")
                     yzers = self.analyzers[pos]
                     # make a list for holding all the yzables we get
                     # out of this group of yzers
                     yzables_out = self.pop_all(pos)
                     while len(yzables_in) > 0:
+                        self.log(step="while len(yzables_in) > 0")
                         yzables_out += self.pop_all(pos)
                         # now put yzables into this group, starting at
                         # random position in the group
                         i = int(random() * len(yzers))
                         not_blocked = True
                         while len(yzables_in) > 0 and not_blocked:
+                            self.log(step="inner not_blocked while len(yzables_in) > 0")
                             yzable = yzables_in.pop()
                             count = 0
                             while True:
+                                self.log(step="inner inner one yzable")
                                 try:
                                     yzers[i].inQ.put_nowait(yzable)
                                     count = 0
                                     break
                                 except Queue.Full:
-                                    self.log(2, "skipping full inQ for %s (pid=%s)"%
+                                    self.log(step="skipping full inQ for %s (pid=%s)"%
                                              (yzer.name, yzer.pid))
                                     i = (i+1) % len(yzers)
                                     count += 1
@@ -137,6 +159,7 @@ class AnalyzerChain(ChangeLoggerContainer):
                                     # list and break out so we can
                                     # attempt to get more yzables out
                                     # of yzers
+                                    self.log(step="looped twice breaking out")
                                     yzables_in.append(yzable)
                                     not_blocked = False
                                     break
@@ -148,30 +171,29 @@ class AnalyzerChain(ChangeLoggerContainer):
                 # inQ.  But first, decrement in_flight by the number
                 # we took off the last position in the chain.
                 for yzable in yzables_out:
-                    self.log(3, "out gave yzable.type=" + yzable.type)
-                    in_flight -= 1
+                    self.log(step="out gave yzable.type=" + yzable.type)
+                    self.in_flight -= 1
                     # delete each yzable as it exits the chain
                     del(yzable)
                 # if non are in_flight, then we can sleep here
-                if in_flight == 0: sleep(1)
+                if self.in_flight == 0: sleep(1)
             # go is clear and none in_flight, stop all analyzers
-            self.log(2, "finished AnalyzerChain loop")
+            self.log(msg="finished AnalyzerChain loop")
             try:
                 self.inQ.close()
                 self.inQ.cancel_join_thread()
             except Exception, exc:
-                self.log(2, traceback.format_exc(exc))
+                self.log(msg=traceback.format_exc(exc))
             # stop and join all yzers
             for pos in positions:
                 for yzer in self.analyzers[pos]:
                     try:
                         yzer.stop()
-                        yzer.join()
                     except Exception, exc:
-                        self.log(0, "%s (%d): %s" % (yzer.name, yzer.pid, exc))
-            self.log(2, "stopped all Analyzers in AnalyzerChain")
+                        self.log(msg="%s (%d): %s" % (yzer.name, yzer.pid, exc))
+            self.log(msg="stopped all Analyzers in AnalyzerChain")
         except Exception, exc:
-            self.log(2, "main loop: " + traceback.format_exc(exc))
+            self.log(msg="main loop: " + traceback.format_exc(exc))
 
     def pop_all(self, pos):
         "attempt to get yzables out of yzers at pos"
@@ -208,38 +230,50 @@ class AnalyzerChain(ChangeLoggerContainer):
                 yzer.stop()
                 yzer = None  # let gc cleanup
 
-class Analyzer(ChangeLoggerContainer):
+class Analyzer(multiprocessing.Process):
     """
-    Super class for all content analyzers.  This subclasses
-    ChangeLoggerContainer and creates Queues for passing
-    document-processing jobs through a chain of Analyzer instances.
+    Super class for all content analyzers.  This creates Queues for
+    passing document-processing jobs through a chain of Analyzer
+    instances.
 
     Subclasses should implement .prepare() and .analyze(job) and
     .cleanup() and set the 'name' attr.
     """
     name = "Analyzer Base Class"
-    def __init__(self, logger):
+    def __init__(self):
         """
         Sets up an inQ, outQ
         """
-        ChangeLoggerContainer.__init__(
-            self, 
-            self.name, 
-            go=None,
-            logger=logger)
+        multiprocessing.Process.__init__(self, name=self.name)
+        self.go = multiprocessing.Event()
+        self.go.set()
         self.inQ  = multiprocessing.Queue(10)
         self.outQ = multiprocessing.Queue(10)
+
+    def stop(self):
+        """
+        Causes the Analyzer to stop
+        """
+        self.log(LOG_NOTICE, "Executing clean stop")
+        self.go.clear()
+
+    def log(self, priority=LOG_DEBUG, msg=None, step=None):
+        if msg is None: msg = self.msg(step)
+        syslog(priority, "%s: %s" % (self.name, msg))
+
+    def msg(self, step=None): 
+        return "%d inQ.qsize" % self.inQ.qsize()
 
     def run(self):
         """
         Gets yzable objects out of inQ, calls self.analyze(yzable)
         """
+        openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
         self.prepare()
-        self.set_msg_func(lambda step: "%d inQ.qsize" % self.inQ.qsize())
-        self.log(3 , "starting")
+        self.log(msg="starting")
         try:
             while self.go.is_set():
-                self.log(3)
+                self.log()
                 try:
                     yzable = self.inQ.get_nowait()
                 except Queue.Empty:
@@ -248,18 +282,20 @@ class Analyzer(ChangeLoggerContainer):
                 try:
                     yzable = self.analyze(yzable)
                 except Exception, exc:
-                    self.log(0, "Encountered error while processing: %s%s --> %s" % (
-                            yzable.hostkey, yzable.relurl, traceback.format_exc(exc)))
+                    self.log(LOG_NOTICE, "Encountered error while processing: %s%s --> %s" % (
+                            yzable.hostkey, 
+                            hasattr(yzable, "relurl") and yzable.relurl or "", 
+                            traceback.format_exc(exc)))
                 self.outQ.put(yzable)
         except Exception, exc:
-            self.log(2, "while self.go.is_set() loop had: %s" % traceback.format_exc(exc))
+            self.log(msg="while self.go.is_set() loop had: %s" % traceback.format_exc(exc))
         try:
             self.inQ.close()
             self.inQ.cancel_join_thread()
             self.outQ.close()
             self.outQ.cancel_join_thread()
         except Exception, exc:
-            self.log(2, traceback.format_exc(exc))
+            self.log(msg=traceback.format_exc(exc))
         self.cleanup()
 
     def analyze(self, yzable):
@@ -284,42 +320,78 @@ class Analyzer(ChangeLoggerContainer):
         Called at the very end of the multiprocessing.Process.run
         function.
         """
-        self.log(3, "finishing")
+        self.log(msg="finishing")
 
-class GetLinks(Analyzer):
-    name = "GetLinks"
+class DumpLinks(Analyzer):
+    name = "DumpLinks"
     def prepare(self):
-        "makes a packer for this instance of GetLinks"
+        "makes a packer for this instance of DumpLinks"
         self.packer = URL.packer()
     def analyze(self, yzable):
         """uses TextProcessing.get_links to get URLs out of each page
         and stores them in this GetLink instance's packer"""
         if yzable.type == URLinfo_type:
-            #self.log(3, yzable.raw_data)
+            #self.log(msg=yzable.raw_data)
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
                 yzable.raw_data, 
                 yzable.depth,
                 ('http',))
-            if errors: self.log(1, ", ".join(["[%s]" % x for x in errors]))
+            if errors: self.log(msg=", ".join(["[%s]" % x for x in errors]))
             errors = self.packer.expand(host_and_relurls_list)
-            if errors: self.log(1, ", ".join(["[%s]" % x for x in errors]))
+            if errors: self.log(msg=", ".join(["[%s]" % x for x in errors]))
             yzable.links = host_and_relurls_list
             total = 0
             for hostkey, relurls in host_and_relurls_list:
                 total += len(relurls)
-            self.log(3, "Got %d urls" % total)
+            self.log(msg="Got %d urls" % total)
         return yzable
     def cleanup(self):
         """
-        Saves this GetLinks instance's packer in a file
+        Saves this DumpLinks instance's packer in a file
         """
-        output_path = "GetLinks.%d" % self.pid
+        output_path = "DumpLinks.%d" % self.pid
         self.packer.dump_to_file(
             output_path, 
             make_file_name_unique=True,
            )
+
+class GetLinks(Analyzer):
+    name = "GetLinks"
+    def analyze(self, yzable):
+        """uses TextProcessing.get_links to get URLs out of each page
+        and pass it on as an attr of the yzable"""
+        if yzable.type == URLinfo_type:
+            #self.log(msg=yzable.raw_data)
+            errors, host_and_relurls_list = get_links(
+                yzable.hostkey,  
+                yzable.relurl, 
+                yzable.raw_data, 
+                yzable.depth)
+            if errors: self.log(msg=", ".join(["[%s]" % x for x in errors]))
+            yzable.links = host_and_relurls_list
+        return yzable
+
+class SaveCrawlState(Analyzer):
+    name = "SaveCrawlState"
+    def prepare(self):
+        self.lines = 0
+        self.output_path = "CrawlState.%d" % self.pid
+        self.urls_fh = open(self.output_path + ".urls", "a")
+        self.hosts_fh = open(self.output_path + ".hosts", "a")
+    def analyze(self, yzable):
+        if yzable.type == URLinfo_type:
+            URL.write_URLinfo(yzable, self.urls_fh)
+            self.log(msg="wrote lines for docid: " + yzable.docid)
+        elif yzable.type == HostSummary_type:
+            URL.write_HostSummary(yzable, self.hosts_fh)
+            self.log(msg="wrote line for hostid: " + yzable.hostid)
+        return yzable
+    def cleanup(self):
+        for fh in [self.urls_fh, self.hosts_fh]:
+            fh.flush()
+            fh.close()
 
 class MakeContentData(Analyzer):
     name = "MakeContentData"
@@ -327,21 +399,20 @@ class MakeContentData(Analyzer):
         """uses TextProcessing.get_links to get URLs out of each page
         and stores them in this GetLink instance's packer"""
         if yzable.type == URLinfo_type:
-            #self.log(3, yzable.raw_data)
+            #self.log(msg=yzable.raw_data)
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
                 yzable.raw_data, 
-                yzable.depth,
-                ('http',))
-            if errors: self.log(1, ", ".join(["[%s]" % x for x in errors]))
+                yzable.depth)
+            if errors: self.log(msg=", ".join(["[%s]" % x for x in errors]))
             errors = self.packer.expand(host_and_relurls_list)
-            if errors: self.log(1, ", ".join(["[%s]" % x for x in errors]))
+            if errors: self.log(msg=", ".join(["[%s]" % x for x in errors]))
             yzable.links = host_and_relurls_list
             total = 0
             for hostkey, relurls in host_and_relurls_list:
                 total += len(relurls)
-            self.log(3, "Got %d urls" % total)
+            self.log(msg="Got %d urls" % total)
         return yzable
     def cleanup(self):
         """
@@ -351,19 +422,19 @@ class MakeContentData(Analyzer):
         self.packer.dump_to_file(
             output_path, 
             make_file_name_unique=True,
-           )
+            )
 
 class LogInfo(Analyzer):
     name = "LogInfo"
     def prepare(self):
-        self.log(0, "Prepare.")
+        self.log(msg="Prepare.")
     def analyze(self, yzable):
-        self.log(0, "Analyze called with %s" % yzable)
+        self.log(msg="Analyze called with %s" % yzable)
         if yzable.type == "URLinfo":
-            self.log(0, "Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
+            self.log(msg="Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
         return yzable
     def cleanup(self):
-        self.log(0, "Cleanup.")
+        self.log(msg="Cleanup.")
 
 class SpeedDiagnostics(Analyzer):
     name = "SpeedDiagnostics"
@@ -375,22 +446,22 @@ class SpeedDiagnostics(Analyzer):
         self.start_time = time()
     def analyze(self, yzable):
         """for URLinfo objects, store the key timing and success/failure info"""
-        #self.log(0, str(yzable))
+        #self.log(msg=str(yzable))
         if yzable.type == URLinfo_type:
             self.deltas.append((yzable.end - yzable.start, yzable.state))
             self.arrivals.append(time() - self.start_time)
-            #self.log(3)
+            #self.log()
         return yzable
     def cleanup(self):
         """send a long message to the log"""
         stop = time()
-        self.log(0, "doing cleanup")
+        self.log(msg="doing cleanup")
         out = ""
         out += "fetcher finished, now analyzing times\n"
         self.deltas.sort()
         out += "%d deltas to consider\n" % len(self.deltas)
         if not self.deltas: 
-            self.log(0, "Apparently saw no URLinfo instances")
+            self.log(msg="Apparently saw no URLinfo instances")
             return
         median = self.deltas[int(round(len(self.deltas)/2.))][0]
         mean = 0.
@@ -401,7 +472,7 @@ class SpeedDiagnostics(Analyzer):
         out += "%.4f mean, %.4f median, %.2f%% succeeded\n" % \
             (mean, median, 100. * success/float(len(self.deltas)))
         begin = 0
-        self.log(0, "entering cleanup for loop")
+        self.log(msg="entering cleanup for loop")
         for i in range(1,11):                      # consider ten bins
             frac = i / 10.
             end = int(len(self.deltas) * frac)     # index number of the last item in this bin
@@ -445,60 +516,6 @@ class SpeedDiagnostics(Analyzer):
                 tot += count
             for bin, count in bins:
                 out += "%s --> %s, %.1f\n" % (bin, count, count / tot)
-        self.log(0, out)
-        self.log(0, "SpeedDiagnostics finished")
+        self.log(msg=out)
+        self.log(msg="SpeedDiagnostics finished")
 
-if __name__ == "__main__":
-    # run a test
-    import urllib
-    import Fetcher
-    from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
-    from Logging import ChangeLogger
-    print "making a logger"
-    cl = ChangeLogger(verbosity=3)
-    cl.log(0, "making an AnalyzerChain")
-
-    ac = AnalyzerChain(cl.logger)
-
-    def stop(a=None, b=None):
-        cl.log(0, "received %s" % a)
-        ac.stop()
-
-    for sig in (SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM):
-        signal(sig, stop)
-    cl.log(0, "setting alarm")
-    alarm(3)
-
-    cl.log(0, "adding an Analyzer")
-    ac.add_analyzer(1, GetLinks, 10)
-    ac.add_analyzer(3, LogInfo, 1)
-
-    hostkey = "http://www.cnn.com"
-    text = urllib.urlopen(hostkey).read()
-    u = Fetcher.URLinfo({
-            "hostkey": hostkey, 
-            "relurl":  '/', 
-            "depth":   0, 
-            "last_modified": 0,
-            }) 
-    u.raw_data = text
-
-    cl.log(0, "calling start")
-    ac.start()
-    cl.log(0, "start returned")
-
-    ac.inQ.put(u)
-
-    while True:
-        actives = multiprocessing.active_children()
-        cl.log(0,  str(actives)) 
-        if len(actives) == 1: break
-        sleep(1)
-
-    ac.join()
-    cl.log(0, "AnalyzerChain join returned")
-    print "calling cl.stop()"
-    cl.logger.stop()
-    cl.logger.join()
-
-    print "If you got here without any tracebacks or having to kill it, then the test passed."

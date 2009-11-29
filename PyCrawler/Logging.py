@@ -22,6 +22,7 @@ from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIG
 
 DELIMITER = "\t"
 
+'''
 syslog_type = sys.stderr
 def syslog_open(name):
     """Given a name, does an openlog. Given a file handle, saves it for later writing."""
@@ -50,6 +51,10 @@ def log(msg, fh=syslog_type, timestamp=True, relative=True):
         syslog_type.flush()
     else:
         syslog.syslog(syslog.LOG_ERR, msg)
+'''
+
+def log(*args):
+    syslog.syslog(syslog.LOG_ERR, str(args[0]))
 
 def _construct_message(rec):
     """
@@ -106,6 +111,7 @@ class Logger(multiprocessing.Process):
         self.previous = ""
         global start
         start = time()
+        syslog.openlog("Logger", syslog.LOG_NDELAY|syslog.LOG_CONS|syslog.LOG_PID, syslog.LOG_LOCAL0)
 
     def stop(self):
         "sleeps briefly to ensure inQ is empty before clearing self.go"
@@ -145,6 +151,10 @@ class Logger(multiprocessing.Process):
             #if rec is None: break
             if level > self.verbosity: continue
             msg = _construct_message(rec)
+
+            syslog.syslog(syslog.LOG_ERR, msg)
+            continue
+
             # if new message, log it, otherwise log dots.
             if msg != self.previous:
                 self.previous = msg
@@ -172,7 +182,7 @@ class ChangeLogger:
     the constructor of all ChangeLoggers.  This master instance then
     manages locking and dotting.
     """
-    def __init__(self, name="ChangeLogger", logger=None, verbosity=3):
+    def __init__(self, name="ChangeLogger"):
         """
         Utility methods for logging.
 
@@ -185,23 +195,11 @@ class ChangeLogger:
         Any ChangeLogger instance or subclass can be used as a master.
         """
         self.name = name
-        if logger is None:
-            # start it immediately, because it must be a child of the
-            # main process for the inQ to work (in current versions of
-            # multiprocessing)
-            logger = Logger(verbosity)
-            logger.go.set()
-            logger.start()
-            self._am_master_logger = True
-        else:
-            self._am_master_logger = False
-        self.logger = logger
         self._log_func = lambda step: step
 
     def stop(self):
         """If this instance created the logger, then stop it."""
-        if self._am_master_logger:
-            self.logger.stop()
+        pass
 
     def set_msg_func(self, func):
         """
@@ -215,7 +213,7 @@ class ChangeLogger:
         """
         self._log_func = func
 
-    def log(self, level=1, msg=None, step=None):
+    def log(self, level=sysylog.LOG_DEBUG, msg=None, step=None):
         """
         If msg is absent, then it calls the function provided to
         set_msg_func to get a msg.
@@ -227,31 +225,25 @@ class ChangeLogger:
         you can simply call self.log(3) to generate a third level log
         message from the function passed into set_msg_func()
         """
-        assert level <= 3, "We want to define only three levels of verbosity."
         if msg is None: 
             msg = self._log_func(step)
-        if hasattr(self, "pid"):
-            pid = self.pid
-        else:
-            pid = os.getpid()
-        rec = (self.name, pid, msg)
-        self.logger.inQ.put((rec, level))
+        syslog.syslog(level, msg)
+
 
 class ChangeLoggerContainer(ChangeLogger, multiprocessing.Process):
     """
     A basic subclass of Process and ChangeLogger that has a self.go
     Event
     """
-    def __init__(self, name="ChangeLoggerContainer", 
-                  go=None, logger=None, verbosity=3):
-        ChangeLogger.__init__(self, name, logger, verbosity)
+    def __init__(self, name="ChangeLoggerContainer", go=None):
         multiprocessing.Process.__init__(self, name=name)
+        ChangeLogger.__init__(self, name=name)
+        syslog.openlog(name, syslog.LOG_NDELAY|syslog.LOG_CONS|syslog.LOG_PID, syslog.LOG_LOCAL0)
         self.go = go or multiprocessing.Event()
         self.go.set()
 
     def run(self):
         """
-        
         """
         # Ignore signals, so the parent has a chance to gracefully
         # request exit by calling stop()
@@ -265,8 +257,8 @@ class ChangeLoggerContainer(ChangeLogger, multiprocessing.Process):
         This function can be called by signal.signal
         """
         self.log(2, "stop(%s)" % a)
-        if self.go is not None: self.go.clear()
-        ChangeLogger.stop(self)
+        if self.go is not None: 
+            self.go.clear()
 
 if __name__ == "__main__":
     from optparse import OptionParser
