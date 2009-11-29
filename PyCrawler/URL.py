@@ -13,7 +13,6 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import os
-import sys
 import gzip
 import pprint
 import traceback
@@ -22,6 +21,8 @@ from hashlib import md5
 from urlparse import urlparse, urlunparse
 """
 TODO:
+ 
+ * get ACCEPTED_SCHEMES from some place better
 
  * fix command line options to make more sense and expose them as a
    script rather than part of this module
@@ -37,7 +38,16 @@ TODO:
         Return a 6-tuple: (scheme, netloc, path, params, query, fragment).
 """
 
-def get_hostkey_relurl(url, schemes=('http', 'https')):
+def get_hostkey_relurl(url, schemes=("http", "https")):
+    """
+    Cleanly splits an absolute URL into two strings:
+
+         scheme://hostname  -- which we call "hostkey"
+
+         /relative/path/to/file -- which we call "relurl"
+
+    Also raises appropriate errors as needed.
+    """
     try:
         o = urlparse(url)
     except Exception, e:
@@ -49,28 +59,34 @@ def get_hostkey_relurl(url, schemes=('http', 'https')):
     if o.port:
         hostkey += ":%d" % o.port
     # reconstruct relurl without scheme, netloc, nor fragment
-    relurl = urlunparse(('','', o.path, o.params, o.query, ''))
+    relurl = urlunparse(("", "", o.path, o.params, o.query, ""))
     if relurl == "":
         relurl = "/"
     return hostkey, relurl
 
 class URLException(Exception):
+    """General URL Exception"""
     def __init__(self, url):
+        """puts the URL in a known attr"""
         self.url = url
 
 class BadFormat(URLException): 
+    """Raised when the urlparse library fails to parse a URL"""
     def __str__(self):
         return "%s --> %s" % (self.url, traceback.format_exc(self))
 
-class UnsupportedScheme(URLException): 
+class UnsupportedScheme(URLException):
+    """Raised when this URL has a scheme not in the accepted list"""
     def __str__(self):
         return ("Unsupported scheme: %s" % self.url)
 
-class NotAcceptedByRegex(URLException): 
+class NotAcceptedByRegex(URLException):
+    """Raised when a URL fails the accepted regex test"""
     def __str__(self):
         return ("Not accepted by regex %s" % self.url)
 
 class RejectedByRegex(URLException): 
+    """Raised when a URL fails the rejected regex test"""
     def __str__(self):
         return ("Rejected by regex %s" % self.url)
 
@@ -80,10 +96,11 @@ class packer:
     of relative urls with link depth and last-modified times for each
     relurl.
     """
-    def __init__(self, schemes=('http', 'https')):
+    def __init__(self, schemes=("http", "https")):
         self.hosts = {}
         self.schemes = schemes
-        self.set_global_regexes()
+        self.accepts = None
+        self.rejects = None
 
     def __len__(self):
         tot = 0
@@ -95,7 +112,9 @@ class packer:
         self.accept = accept
         self.reject = reject
 
-    def add_url(self, url, depth=0, last_modified=0, http_response=None, content_data=None):
+    def add_url(
+        self, url, depth=0, last_modified=0, 
+        http_response=None, content_data=None):
         """
         Add a URL to the appropriate host's list of relative URLs.
         depth and last_modified have default values of 0 and 0.
@@ -107,7 +126,9 @@ class packer:
             content_data,
            )
 
-    def update(self, hostkey, relurl, depth, last_modified, http_response, content_data):
+    def update(
+        self, hostkey, relurl, depth, 
+        last_modified, http_response, content_data):
         """
         An internal method for keeping consistent and unique
         information.  Use add_url or expand methods instead.
@@ -167,14 +188,22 @@ class packer:
         If gz is True (the default), this appends .gz to output_path
         and writes gzipped data to the file.
         """
+        parent = os.path.dirname(output_path)
+        if parent and not os.path.exists(parent):
+            os.makedirs(parent)
         json = simplejson.dumps(self.dump())
         if make_file_name_unique:
             output_path += "." + md5(json).hexdigest()
-        zbuf = open(output_path + ".gz", "w")
-        zfile = gzip.GzipFile(mode = "wb",  fileobj = zbuf, compresslevel = 9)
-        zfile.write(json)
-        zfile.close()
-
+        if gz:
+            output_path += ".gz"
+            zbuf = open(output_path, "w")
+            file = gzip.GzipFile(mode = "wb",  fileobj = zbuf, compresslevel = 9)
+        else:
+            file = open(output_path, "w")
+        file.write(json)
+        file.close()
+        return output_path
+        
     def pformat(self):
         """
         Returns a pretty formatted string of the packer.
@@ -244,115 +273,3 @@ class packer:
             fh.close()
         return errors
 
-def test(option, opt_str, value, parser, *args, **kwargs):
-    p1 = packer()
-    p1.add_url("http://test.host.com/long/long/%s;frag?foo=bar")
-    o = p1.dump()
-    p2 = packer()
-    p2.expand(o)
-    assert o == p2.dump()
-
-    import time
-    num = 10000
-    start = time.time()
-    p = packer()
-    for i in xrange(num):
-        p.add_url("http://test.host.com/long/long/%s;frag?foo=bar")
-    end = time.time()
-    print "packed %s URLs in %s seconds at a rate of %s create/sec" % \
-        (num, end - start, num / (end - start))
-
-    fh = open("URL_lists/u1000.h10")
-    start = time.time()
-    p = packer()
-    c = 0
-    for u in fh.readlines():
-        try:
-            p.add_url(u.strip())
-        except Exception, e:
-            print str(e)
-        c += 1
-    end = time.time()
-    print "packed %s URLs for %d hosts in %s seconds at a rate of %s create/sec" % \
-        (c, len(p.hosts), end - start, num / (end - start))
-    sys.exit(0)
-
-if __name__ == "__main__":
-    from optparse import OptionParser
-    parser = OptionParser()
-    parser.add_option("--test",  action="callback",  callback=test,               help="Run basic tests.")    
-    parser.add_option("--dump",  action="store_true", dest="dump",  default=False,  help="Pretty print a gzip'ed simplejson file of a URL.packer.dump()")
-    parser.add_option("--merge",  type=str,  dest="merge_output_file",  default="",  help="Load all filenames specified by args, checks first if each file is a gzip'ed packer dumps and then checks for one-URL-per-line, and merges them together in a single packer.  Dumps the merged packer to a gzip'ed JSON file that can be loaded by other components.")
-    parser.add_option("--summary",  action="store_true", dest="summary",  default=False,  help="Summarize the gzip'ed simplejson file of a URL.packer.dump()")
-    (options, args)= parser.parse_args()
-
-    if options.merge_output_file:
-        if len(args) == 0:
-            print "Must specify a file containing one URL per line"
-            sys.exit(0)
-        main_packer = packer()
-        for input_path in args:
-            main_packer.merge(input_path)
-
-        main_packer.dump_to_file(options.merge_output_file)
-        print "Created: %s.gz" % options.merge_output_file
-        sys.exit(0)
-    
-    # continue with the assumption that the one arg is a gzip'ed JSON
-    # file path
-    if not args:
-        print "requires a gzipped json file as an input arg."
-        sys.exit(1)
-
-    main_packer = packer()
-    try:
-        main_packer.expand_from_file(args[0])
-    except Exception, exc:
-        print "Failed to expand_from_file(%s), because: %s" % (args[0], exc)
-        sys.exit(1)
-
-    if options.dump:        
-        print main_packer.pformat()
-
-    if options.summary:
-        stats = {}
-        for hostkey, relurls in main_packer.dump():
-            for relurl, depth, last_modified, http_response, content_data in relurls:
-                if depth not in stats:
-                    stats[depth] = {"fetched": 0,
-                                    "unattempted": 0,
-                                    "failed": 0,
-                                    "total": 0,
-                                    "hosts": {}
-                                    }
-                stats[depth]["hosts"][hostkey] = True                    
-                stats[depth]["total"] += 1
-                if last_modified == -1:
-                    stats[depth]["failed"] += 1
-                elif last_modified == 0:
-                    stats[depth]["unattempted"] += 1
-                else:
-                    stats[depth]["fetched"] += 1
-
-        import locale
-        print locale.setlocale(locale.LC_ALL, ("en", "utf-8"))
-        def num(n, size = 13):
-            s = locale.format('%d', n, True)
-            return "%s%s" % (s, " " * (size - len(s)))
-
-        depths = stats.keys()
-        depths.sort()
-        print """
-        depth      %s
-num hosts          %s
-num total relurls  %s
-num unattempted    %s
-num fetched        %s
-num failed         %s
-""" % ("\t".join([num(depth)                        for depth in depths]),
-        "\t".join([num(len(stats[depth]["hosts"])) for depth in depths]),
-        "\t".join([num(stats[depth]["total"])        for depth in depths]),
-        "\t".join([num(stats[depth]["unattempted"])  for depth in depths]),
-        "\t".join([num(stats[depth]["fetched"])      for depth in depths]),
-        "\t".join([num(stats[depth]["failed"])       for depth in depths]),
-       )
