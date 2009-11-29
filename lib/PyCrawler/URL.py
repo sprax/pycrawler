@@ -99,8 +99,8 @@ class packer:
     def __init__(self, schemes=("http", "https")):
         self.hosts = {}
         self.schemes = schemes
-        self.accepts = None
-        self.rejects = None
+        self.accept = None
+        self.reject = None
 
     def __len__(self):
         tot = 0
