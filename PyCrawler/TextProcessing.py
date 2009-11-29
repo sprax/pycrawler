@@ -9,6 +9,7 @@ __version__ = "0.1"
 
 import re
 import URL
+ACCEPTED_SCHEMES = ("http", "https", "ftp", "ftps")
 
 whitespace_re = re.compile("\s+", re.M)
 def is_text(bytes):
@@ -39,7 +40,7 @@ anchors_re = re.compile(r"<a\s+([^>]*)>(.*?)</a>")
 href_re = re.compile(r"""href\s*=(\s*'([^']*)'|\s*"([^"]*)"|(\S+))""", re.I)
 scheme_re = re.compile(r"^(\w+)\://(.*)$")
 js_re = re.compile(r"\s*javascript\:", re.I)
-def get_links(hostkey, relurl, text, depth=0, accepted_schemes=None):
+def get_links(hostkey, relurl, text, depth=0, accepted_schemes=ACCEPTED_SCHEMES):
     """
     Uses python regexes to extract links from text and uses URL.packer
     to construct a list of (host, [relurls]) tuples.  Also returns a
