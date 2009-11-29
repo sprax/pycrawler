@@ -1,0 +1,60 @@
+#!/usr/bin/python
+"""
+Tool for starting, stopping, restarting, and configuring instances of
+PyCrawler.Server.
+"""
+#$Id$
+import os
+import sys
+import PyCrawler
+from optparse import OptionParser
+parser = OptionParser(usage="PyCrawler_control start|stop|restart")
+parser.add_option("-p", "--port", dest="port", default=PyCrawler.PORT, type=int, help="port number to start a PyCrawler instance")
+parser.add_option("--authkey", dest="authkey", default=PyCrawler.AUTHKEY, help="authkey for this PyCrawler instance")
+parser.add_option("--verbosity", dest="verbosity", default=0, type=int, help="verbosity")
+parser.add_option("--dir", dest="data_path", default=PyCrawler.DATA_PATH, help="path to where this PyCrawler instance should store its state")
+parser.add_option("--name", dest="name", default="pycrawler", help="name of this PyCrawler instance")
+parser.add_option(
+    "--pid", dest="pidfile_path", 
+    default=os.path.join(PyCrawler.DATA_PATH, "pycrawler.pid"), 
+    help="path for pid file for this PyCrawler instance")
+(options, args) = parser.parse_args()
+if args[0] not in ("stop", "start", "restart"):
+    sys.exit("Try PyCrawler_control --help")
+if args[0] in ("stop", "restart"):
+    pcc = PyCrawler.FetchClient(
+        address=("", options.port),
+        authkey=options.authkey,
+        )
+    pcc.stop()
+if args[0] in ("start", "restart"):
+    import daemon
+    PyCrawler.Logging.syslog_open(options.name)
+    PyCrawler.Logging.DELIMITER = "|"
+    pcs = PyCrawler.FetchServer(
+        verbosity=options.verbosity,
+        address=("", options.port),
+        authkey=options.authkey,
+        data_path=options.data_path)
+
+    # Instead of starting this as a multiprocessing.Process, we run
+    # pcs via DaemonRunner below.  
+    #pcs.start()
+    with daemon.DaemonContext():
+        pcs.start()    
+
+    """
+    class DaemonApp(object):
+        def __init__(self, pidfile_path, run):
+            self.pidfile_path = pidfile_path
+            self.pidfile_timeout = 10
+            self.run = run
+            
+            self.stdin_path = '/dev/null'
+            self.stdout_path = '/dev/null'
+            self.stderr_path = '/dev/null'
+
+    app = DaemonApp(options.pidfile_path, pcs.run)
+    daemon_runner = runner.DaemonRunner(app)
+    daemon_runner.do_action()
+    """
