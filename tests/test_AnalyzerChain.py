@@ -1,20 +1,30 @@
 """
 Tests for PyCrawler.AnalyzerChain
 """
-#$Id: $
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
+import os
 import sys
-sys.path.append("..")
+import traceback
+sys.path.append(os.path.join(os.getcwd(), "lib"))
+
+try:
+    from PyCrawler import AnalyzerChain, Analyzer, URLinfo, GetLinks, LogInfo
+except Exception, exc:
+    msg = "Failed to import PyCrawler.\n"
+    msg += "Were you running tests from trunk/ ?\n"
+    msg += traceback.format_exc(exc)
+    sys.exit(msg)
 
 import multiprocessing
 from time import sleep, time
 from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
-from PyCrawler import AnalyzerChain, Analyzer, URLinfo, GetLinks, LogInfo
+
 
 class BrokenAnalyzer(Analyzer):
     name = "BrokenAnalyzer"
