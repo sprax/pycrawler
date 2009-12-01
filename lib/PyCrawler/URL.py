@@ -158,6 +158,32 @@ class packer:
             if content_data is None: content_data = old_content_data
         self.hosts[ hostkey ][ relurl ] = (depth, last_modified, http_response, content_data)
 
+    def dump_absolute_urls(self, output_path, gz=True):
+        """
+        Returns a list of absolute URLs.
+        """
+        """
+        Serializes the results of self.dump() using simplejson and
+        puts the data into a file at output_path.
+
+        If gz is True (the default), this appends .gz to output_path
+        and writes gzipped data to the file.
+        """
+        parent = os.path.dirname(output_path)
+        if parent and not os.path.exists(parent):
+            os.makedirs(parent)
+        if gz:
+            output_path += ".gz"
+            zbuf = open(output_path, "w")
+            file = gzip.GzipFile(mode = "wb",  fileobj = zbuf, compresslevel = 9)
+        else:
+            file = open(output_path, "w")
+        for hostkey in self.hosts:
+            for relurl in self.hosts[hostkey]:
+                file.write(hostkey + relurl + "\n")
+        file.close()
+        return output_path
+
     def dump(self):
         """
         Dumps a list of two-tuples.  Each tuple has:
@@ -191,16 +217,16 @@ class packer:
         parent = os.path.dirname(output_path)
         if parent and not os.path.exists(parent):
             os.makedirs(parent)
-        json = simplejson.dumps(self.dump())
+        data = simplejson.dumps(self.dump())
         if make_file_name_unique:
-            output_path += "." + md5(json).hexdigest()
+            output_path += "." + md5(data).hexdigest()
         if gz:
             output_path += ".gz"
             zbuf = open(output_path, "w")
             file = gzip.GzipFile(mode = "wb",  fileobj = zbuf, compresslevel = 9)
         else:
             file = open(output_path, "w")
-        file.write(json)
+        file.write(data)
         file.close()
         return output_path
         
@@ -235,7 +261,13 @@ class packer:
         """
         errors = []
         for (hostkey, relurls) in host_and_relurls_list:
-            for (relurl, depth, last_modified, http_response, content_data) in relurls:
+            for rec in relurls:
+                if len(rec) == 3:
+                    (relurl, depth, last_modified) = rec
+                    http_response = None
+                    content_data = None
+                elif len(rec) == 5:
+                    (relurl, depth, last_modified, http_response, content_data) = rec
                 try:
                     self.update(hostkey, relurl, depth, last_modified, http_response, content_data)
                 except Exception, e:
