@@ -29,13 +29,13 @@ from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIG
 class BrokenAnalyzer(Analyzer):
     name = "BrokenAnalyzer"
     def prepare(self):
-        self.log(msg="Prepare.")
+        syslog("Prepare.")
     def analyze(self, yzable):
-        self.log(msg="Analyze called with %s" % yzable)
+        syslog("Analyze called with %s" % yzable)
         raise Exception("failing intentionally for a test")
         return yzable
     def cleanup(self):
-        self.log(msg="Cleanup.")
+        syslog("Cleanup.")
 
 def test(with_broken_analyzer=False):
 
