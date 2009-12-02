@@ -5,7 +5,7 @@ CrawlStateManager.
 This runs Fetcher instances on batches of URLs provided by the
 CrawlStateManager.
 """
-#$Id:$
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
@@ -19,33 +19,35 @@ Actually finish this --- this does not work yet; not done.
 import os
 import Queue
 import daemon  # from PyPI
-from PersistentQueue import PersistentQueue
 import multiprocessing
 import multiprocessing.managers
 from copy import copy
 from time import time, sleep
-from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Fetcher import Fetcher
+from Process import Process
+from PersistentQueue import PersistentQueue
 from CrawlStateManager import CrawlStateManager
+
+# using older than python2.6...
+import ctypes
+def floatfromhex(my_hex):
+    my_int = int(my_hex, 16)                              # convert from hex to a Python int
+    cp = ctypes.pointer(ctypes.c_int(my_int))             # make this into a c integer
+    fp = ctypes.cast(cp, ctypes.POINTER(ctypes.c_float))  # cast the int pointer to a float pointer
+    return fp.contents.value         # dereference the pointer, get the float
 
 PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"
 DATA_PATH = "/var/lib/pycrawler"
 
-class Sender(multiprocessing.Process):
+class Sender(Process):
     def __init__(self, go, id, hostbins, authkey):
-        multiprocessing.Process.__init__(self, name="Sender:%s" % id)
-        self.go = go
         self.id = id
+        self.name = "Sender:%s" % id
+        Process.__init__(self, go)
         self.hostbins = hostbins
         self.authkey = authkey
-
-    def log(self, priority=LOG_DEBUG, msg=None, step=None):
-        if msg is None: msg = self.msg(step)
-        syslog(priority, msg)
-
-    def msg(self, step=None):
-        return step and "%s: " % step or ""
 
     def run(self):
         """
@@ -54,8 +56,8 @@ class Sender(multiprocessing.Process):
         sends the data that this FetchServer has accumulated for
         that other FetchServer
         """
-        openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
-        self.log(msg="Starting")
+        self.prepare_process()
+        syslog("Starting")
         sys.exit()
         for bin in self.hostbins:
             # skip if this FetchServer owns this bin
@@ -66,12 +68,12 @@ class Sender(multiprocessing.Process):
                 try:
                     fmc.inQ.put_nowait(rec)
                 except Queue.Full:
-                    self.log(msg="Blocking on %s" % bin)
+                    syslog("Blocking on %s" % bin)
                     sleep(1)
-            self.log(msg="Done with %s" % bin)
-        self.log(msg="All done.")
+            syslog("Done with %s" % bin)
+        syslog("All done.")
 
-class FetchServer(multiprocessing.Process):
+class FetchServer(Process):
     class ManagerClass(multiprocessing.managers.BaseManager): pass
 
     def __init__(self, go=None, address=("", PORT), authkey=AUTHKEY, 
@@ -85,9 +87,8 @@ class FetchServer(multiprocessing.Process):
         find its hostbins in the config
         """
         self.id = "%s:%s" % address
-        multiprocessing.Process.__init__(self, name="FetchServer:%s" % self.id)
-        self.go = go or multiprocessing.Event()
-        self.go.set()
+        self.name = "FetchServer:%s" % self.id
+        Process.__init__(self)
         self.data_path = data_path
         self.inQ = PersistentQueue(data_path=os.path.join(self.data_path, "inQ"))
         self.reload = multiprocessing.Event()
@@ -95,8 +96,8 @@ class FetchServer(multiprocessing.Process):
         mgr = multiprocessing.Manager()
         self.relay = mgr.Namespace()
         self.config = None
-        self.ManagerClass.register("put_urlrecs", callable=self.inQ.put)
-        self.ManagerClass.register("stop", callable=self.go.clear)
+        self.ManagerClass.register("put", callable=self.inQ.put)
+        self.ManagerClass.register("stop", callable=self.stop)
         self.ManagerClass.register("reload", callable=self.reload.set)
         self.ManagerClass.register("set_config", callable=self.set_config)
         self.address = address
@@ -135,59 +136,66 @@ class FetchServer(multiprocessing.Process):
             4) wait for fetchers and sender to finish
 
         """
+        self.prepare_process()
         self.manager = self.ManagerClass(self.address, self.authkey)
         self.manager.start()
-        self.log(step="entering main loop")
+        syslog("entering main loop")
         while self.go.is_set():
             if self.reload.is_set():
-                self.log(step="reload is set")
+                syslog("reload is set")
                 if hasattr(self.relay, "config") and \
                         self.valid_config(self.relay.config):
-                    self.log(step="got valid config")
+                    syslog("got valid config")
                     self.config = copy(self.relay.config)
-                    self.hostbins = self.config["hostbins"][self.id]
                     # csm handles disk interactions with state
-                    self.log(step="creating & starting CrawlStateManager")
+                    syslog("creating & starting CrawlStateManager")
                     self.csm = CrawlStateManager(self.config)
                     self.csm.start()
                 else:
-                    self.log(msg="got invalid config")
+                    syslog("got invalid config")
                     self.config = None
+                    if self.csm is not None: self.csm.stop()
                     self.csm = None
                 self.reload.clear()
             if self.config is None:
                 sleep(1)
-                self.log(msg="waiting for config")
+                syslog("waiting for config")
                 continue
             # get all data from inQ, and import into crawl state
-            self.log(step="importing received files into csm")
+            syslog("importing received files into csm")
             self.inQ.transfer_to(self.csm.inQ)
-            self.csm.prepare()
+            self.csm.prepare_state()
             # Get an AnalyzerChain. This allows csm to record data as
             # it streams out of fetcher.  The config could cause csm
             # to add more Analyzers to the chain.
-            self.log(step="getting an AnalyzerChain")
+            syslog("getting an AnalyzerChain")
             ac = self.csm.get_analyzerchain()
             # Create a fetcher
-            self.log(step="making a Fetcher")
+            syslog("making a Fetcher")
             self.fetcher = Fetcher(
                 outQ = ac.inQ,
                 params = self.config["fetcher_options"],
                 )
             # Get a URLs from csm, these will be selected by scoring
-            self.log(step="getting packer from csm; passing into fetcher")
+            syslog("getting packer from csm; passing into fetcher")
             self.fetcher.packer.expand(self.csm.get_packer_dump())
-            self.log(step="starting fetcher")
+            syslog("starting fetcher")
             self.fetcher.start()
             # wait for fetcher to finish
             while self.fetcher.is_alive():
-                self.log(msg="fetcher is alive, setting heart_beat")
+                syslog("fetcher is alive, setting heart_beat")
                 self.config["heart_beat"] = time()
                 sleep(1)
             ac.stop()
+        syslog("stopping csm")
         if self.csm is not None:
             self.csm.stop()
-        self.log(msg="exiting main loop")
+        syslog("calling manager.shutdown()")
+        self.manager.shutdown()
+        while len(multiprocessing.active_children()) > 0:
+            syslog("waiting for: " + str(multiprocessing.active_children()))
+            sleep(1)
+        syslog("exiting main loop")
 
     def valid_config(self, config):
         """returns bool indicating whether 'config' is valid, i.e. has
@@ -196,18 +204,18 @@ class FetchServer(multiprocessing.Process):
         3) fetcher_options that is a dict
         """
         if "hostbins" not in config:
-            self.log(msg="invalid config: lacks hostbins")
+            syslog("invalid config: lacks hostbins")
             return False
         elif self.id not in config["hostbins"]:
-            self.log(msg="invalid config: its hostbins lacks %s" % self.id)
+            syslog("invalid config: its hostbins lacks %s" % self.id)
             return False
         elif "frac_to_fetch" not in config or \
                 not isinstance(config["frac_to_fetch"], float):
-            self.log(msg="invalid config: frac_to_fetch should be float")
+            syslog("invalid config: frac_to_fetch should be float")
             return False
         elif "fetcher_options" not in config or \
                 not isinstance(config["fetcher_options"], dict):
-            self.log(msg="invalid config: missing fetcher_options")
+            syslog("invalid config: missing fetcher_options")
             return False
         # must be valid
         return True
@@ -215,7 +223,7 @@ class FetchServer(multiprocessing.Process):
 class FetchClient:
     def __init__(self, address=("", PORT), authkey=AUTHKEY):
         class LocalFetchManager(multiprocessing.managers.BaseManager): pass
-        LocalFetchManager.register("get_inQ")
+        LocalFetchManager.register("put")
         LocalFetchManager.register("stop")
         LocalFetchManager.register("reload")
         LocalFetchManager.register("set_config")
@@ -225,38 +233,55 @@ class FetchClient:
     def set_config(self, config):
         self.fm.set_config(config)
         self.fm.reload()
+    def add_url(self, url):
+        """
+        Create a new URL record and add it to this FetchServer
+        """
+        rec = CrawlStateManager.make_rec(url)
+        self.fm.put(rec)
 
 def default_id(hostname):
     return "%s:%s" % (hostname, PORT)
 
 def get_ranges(num):
     assert num > 0 and isinstance(num, int)
-    step_size = float.fromhex("F" * num)
+    step_size = floatfromhex("F" * num)
     ranges = []
     for i in range(num):
         ranges.append([step_size * num, step_size * (num + 1)])
     return ranges
 
-def test():
-    fs = FetchServer()
-    fs.start()
-    fc = FetchClient()
-    fc.set_config({
-            "hostbins": {default_id(""): get_ranges(1)[0]},
-            "frac_to_fetch": 0.4,
-            "fetcher_options": {
-                "SIMULATE": 3,
-                "DOWNLOAD_TIMEOUT":  60,
-                "FETCHER_TIMEOUT":   30000,
-                }
-            })
-    sleep(3)
-    fc.stop()
-    while fs.is_alive():
-        sleep(1)
-        syslog(LOG_DEBUG, "waiting for FetchServer to stop")
-    cl.stop()
+class TestHarness(Process):
+    name = "FetchServerTestHarness"
+    def run(self):
+        self.prepare_process()
+        syslog("making a FetchServer")
+        fs = FetchServer()
+        fs.start()
+        fc = FetchClient()
+        syslog("calling FetchClient.set_config")
+        fc.set_config({
+                "hostbins": {default_id(""): get_ranges(1)[0]},
+                "frac_to_fetch": 0.4,
+                "fetcher_options": {
+                    "SIMULATE": 3,
+                    "DOWNLOAD_TIMEOUT":  60,
+                    "FETCHER_TIMEOUT":   30000,
+                    }
+                })
+        syslog("done with FetchClient.set_config")
+        sleep(3)
+        fc.stop()
+        syslog("called stop on FetchClient")
+        while fs.is_alive():
+            sleep(1)
+            syslog("waiting for FetchServer to stop")
+        syslog("exiting")
 
 if __name__ == "__main__":
-    test()
+    test = TestHarness()
+    test.start()
+    print "waiting"
+    while test.is_alive():
+        sleep(1)
     

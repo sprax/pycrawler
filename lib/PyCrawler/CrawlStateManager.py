@@ -19,8 +19,15 @@ import gzip
 import multiprocessing
 import cPickle as pickle
 from time import time, sleep
+from base64 import urlsafe_b64encode
+from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
+from Process import Process
 from hashlib import md5
 from AnalyzerChain import AnalyzerChain, GetLinks, SpeedDiagnostics
+
+LINK = "LINK"
+INLINK = "INLINK"
+FETCHED = "FETCHED"
 
 def make_hostid_bin(hostkey):
     hostid = md5(hostkey).hexdigest()
@@ -31,7 +38,7 @@ def make_docid(hostkey, relurl):
     docid = md5(hostkey + relurl).hexdigest()
     return docid
 
-class CrawlStateManager(multiprocessing.Process):
+class CrawlStateManager(Process):
     """Organizes crawler's state into flat files on disk, which it
 sorts between crawls.
 
@@ -86,20 +93,32 @@ state using these steps:
 
 When that method returns, the crawler can continue.    
     """
-    def __init__(self, logger, config):
+    name = "CrawlStateManager"
+    def __init__(self, config):
         """
         Setup a go Event
         """
-        multiprocessing.Process.__init__(self, name="CrawlStateManager")
+        Process.__init__(self)
+        self.inQ = multiprocessing.Queue(1000)        
         self.config = config
 
     def run(self):
         """
         """
-        self.log(msg="in csm")
+        self.prepare_process()
+        syslog("in csm")
         while self.go.is_set():
-            self.log(msg="looping")
             sleep(1)
+
+    def make_rec_from_url(self, url):
+        """
+        0) hostbin, docid, type=LINK, hostid, urlsafe_b64encode(relurl)
+        """
+        hostkey, relurl = URL.get_hostkey_relurl(url)
+        hostid, hostbin = make_hostid_bin(hostkey)
+        docid = make_docid(hostkey, relurl)
+        rec = (hostbin, docid, LINK, hostid, urlsafe_b64encode(relurl))
+        return rec
 
     def make_analyzer(self):
         os.makedirs(self.data_path + "/CrawlState")
@@ -116,10 +135,10 @@ When that method returns, the crawler can continue.
             def analyze(self, yzable):
                 if yzable.type == URLinfo_type:
                     write_URLinfo(yzable, self.urls_fh)
-                    self.log(2, "wrote lines for docid: " + yzable.docid)
+                    syslog("wrote lines for docid: " + yzable.docid)
                 elif yzable.type == HostSummary_type:
                     write_HostSummary(yzable, self.hosts_fh)
-                    self.log(2, "wrote line for hostid: " + yzable.hostid)
+                    syslog("wrote line for hostid: " + yzable.hostid)
                 return yzable
             def cleanup(self):
                 for fh in [self.urls_fh, self.hosts_fh]:
@@ -127,7 +146,7 @@ When that method returns, the crawler can continue.
                     fh.close()
         return CrawlStateAnalyzer
 
-    def prepare(self):
+    def prepare_state(self):
         """Sort and bin all the state files
         """
         pass
@@ -138,14 +157,14 @@ When that method returns, the crawler can continue.
         pass
 
     def get_analyzerchain(self):
-        
-        ac = AnalyzerChain(self.logger)
-        self.log(msg="adding generic Analyzers")
+        syslog("making an AnalyzerChain")
+        ac = AnalyzerChain()
+        syslog("adding generic Analyzers")
         ac.add_analyzer(1, GetLinks, 10)
         ac.add_analyzer(3, SpeedDiagnostics, 1)
-        #self.log(msg="adding special Analyzers")
+        #syslog("adding special Analyzers")
         #ac.add_analyzer(2, self.make_analyzerclass(), 1)
-        self.log(msg="calling start")
+        syslog("calling start")
         ac.start()
         return ac
 
