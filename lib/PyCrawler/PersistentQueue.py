@@ -19,6 +19,8 @@ import Queue
 import marshal
 import multiprocessing
 from time import time, sleep
+from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
+from Process import Process
 
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
@@ -195,7 +197,7 @@ class PersistentQueue:
         finally:
             self.semaphore.release()
 
-    def tansfer_to(self, other_q):
+    def transfer_to(self, other_q):
         """
         Moves all data out of this queue and into another instance of
         PersistentQueue.  This implementation just acquires the
@@ -266,9 +268,10 @@ def basic_test(data_path, ELEMENTS=1000, p=None):
     p.sync()
     p.close()
 
-class PersistentQueueContainer(multiprocessing.Process):
+class PersistentQueueContainer(Process):
     def __init__(self, id, go, data_path):
-        multiprocessing.Process.__init__(self, name=id)
+        self.name = id
+        Process.__init__(self)
         self.data_path = data_path
         if not os.path.exists(self.data_path):
             os.makedirs(self.data_path)
@@ -280,14 +283,14 @@ class PersistentQueueContainer(multiprocessing.Process):
     def run(self):
         """
         """
-        self.log(msg="Starting")
+        syslog("Starting")
         self.queue = PersistentQueue(self.data_path)
         while self.go.is_set() and self._go.is_set():
             sleep(1)
-        self.log(msg="syncing before closing")
+        syslog("syncing before closing")
         self.queue.sync()
         self.queue.close()
-        self.log(msg="Done.")
+        syslog("Done.")
         self.stop()
 
 def process_test(data_path, ELEMENTS):
