@@ -66,7 +66,8 @@ import AnalyzerChain
 import PriorityQueue
 import multiprocessing
 from time import time, sleep
-from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
+from Process import Process
 from nameddict import nameddict
 from TextProcessing import get_links
 try:
@@ -165,7 +166,7 @@ class Host(PriorityQueue.Queue):
         # the queue.
         if 0 <= self.robots_next < time():
             self.robots_next = -1  # set to pending
-            self.log(msg="put(/robots.txt)")
+            syslog(LOG_DEBUG, "put(/robots.txt)")
             robots_info = URLinfo({
                     "hostkey": self.hostkey, 
                     "relurl":  "/robots.txt",
@@ -179,10 +180,10 @@ class Host(PriorityQueue.Queue):
             url_info.state = ROBOTS_REJECTED
             self.fetcher.out_proc(url_info)
         else:
-            self.log(msg="put(%s)" % url_info.relurl)
+            syslog(LOG_DEBUG, "put(%s)" % url_info.relurl)
             PriorityQueue.Queue._put(self, (depth, url_info))
 
-    def msg(self, step=None):
+    def msg(self, step):
         elapsed = time() - self.start_time
         kb = self.total_bytes / 1024.
         byte_rate = kb / elapsed
@@ -191,14 +192,11 @@ class Host(PriorityQueue.Queue):
             "%d ready, %d open, %.2f KB ever, " + \
             "%s hits ever, %d(%d) succ(fail), %s KB/sec, " + \
             "%s hits/sec, next in %s" 
-        return template % (step and "%s: " % step or "",
+        msg = template % (step and "%s: " % step or "",
              elapsed, self.qsize(), len(self.conns), kb, 
              self.total_hits, self.succeeded, self.failed, 
              byte_rate, hit_rate, self.next_time() - time())
-
-    def log(self, priority=LOG_DEBUG, msg=None, step=None):
-        if msg is None: msg = self.msg(step)
-        syslog(priority, msg)
+        syslog(LOG_DEBUG, msg)
 
     def robots_allows(self, relurl):
         if not self.rp: return True
@@ -207,9 +205,9 @@ class Host(PriorityQueue.Queue):
                 self.fetcher.CRAWLER_NAME, 
                 self.hostkey + relurl)
         except Exception, e:
-            self.log(LOG_INFO, "robotparser failed:  %s" % str(e))
+            syslog("robotparser failed:  %s" % str(e))
             return True
-        if not can_fetch: self.log(LOG_INFO, "robots denies: %s" % relurl)
+        if not can_fetch: syslog("robots denies: %s" % relurl)
         return can_fetch
 
     def next_time(self):
@@ -224,15 +222,15 @@ class Host(PriorityQueue.Queue):
         """ update the hosts info for polite behavior """
         self.total_bytes += url_info.len_fetched_data
         self.total_hits  += 1
-        self.log(step="update")
+        self.msg("update")
         if url_info.relurl == "/robots.txt":
-            self.log(LOG_INFO, "%d B robots.txt" % url_info.len_fetched_data)
+            syslog("%d B robots.txt" % url_info.len_fetched_data)
             self.robots_next = time() + self.fetcher.RECHECK_ROBOTS_INTERVAL
             self.rp = robotparser.RobotFileParser()
             try:
                 self.rp.parse(url_info.raw_data)
             except Exception, e:
-                self.log(LOG_INFO, "robotparse failed: %s" % str(e))
+                syslog("robotparse failed: %s" % str(e))
                 self.rp = None
             if self.rp:
                 for pair in self:
@@ -241,7 +239,7 @@ class Host(PriorityQueue.Queue):
                         self.remove(pair)
                         url_info.state = ROBOTS_REJECTED
                         self.fetcher.out_proc(url_info)
-        self.log(LOG_DEBUG, "out_proc(%s)" % url_info.relurl)
+        syslog(LOG_DEBUG, "out_proc(%s)" % url_info.relurl)
         self.fetcher.out_proc(url_info)
         # should detect if all of the URLs are redirecting to a
         # different host, and thus this host should get destroyed.
@@ -256,7 +254,7 @@ class Host(PriorityQueue.Queue):
                 "next_time": self.next_time(),
                 })
 
-class Fetcher(multiprocessing.Process):
+class Fetcher(Process):
     """
 The Fetcher class uses libcurl (via pycurl) for non-blocking,
 streaming HTTP fetching.  
@@ -313,15 +311,16 @@ info.
         Takes a dict of (hostkey --> list of urls) and fetches them as
         fast as possible within politeness constraints.
         """
-        multiprocessing.Process.__init__(self, name=self.CRAWLER_NAME)
-        self.go = go or multiprocessing.Event()
-        self.go.set()
         # allow parameters to come as a dict or as kwargs
         params.update(kwargs)
         self.__dict__.update(params)
         self.USERAGENT = "Mozilla/5.0 (%s; +%s)" % \
             (self.CRAWLER_NAME, self.CRAWLER_HOMEPAGE)
-        self.log(LOG_INFO, "Created fetcher, useragent = %s" % self.USERAGENT)
+        if not hasattr(self, "name"):
+            name = self.CRAWLER_NAME
+        Process.__init__(self, go)
+        syslog("Created fetcher, useragent = %s" % self.USERAGENT)
+        syslog("fetcher process name = %s" % self.name)
         self.outQ = outQ
         self.packer = URL.packer()
         self.pQ = PriorityQueue.Queue()
@@ -334,13 +333,6 @@ info.
         self.idlelist = []
         self.freelist = []
 
-    def stop(self):
-        """
-        Causes the fetcher to stop
-        """
-        self.log(LOG_NOTICE, "Executing clean stop")
-        self.go.clear()
-
     def process_host(self, host_summary):
         """A stub function that subclasses can override with their own
         mechanisms for persisting host politeness information."""
@@ -350,15 +342,15 @@ info.
         self.packer = packer
 
     def init_curl(self):
-        self.log(LOG_INFO, "pycurl.global_init...")
+        syslog("pycurl.global_init...")
         # This is not threadsafe.  See note above.
         pycurl.global_init(pycurl.GLOBAL_DEFAULT)
-        self.log(LOG_INFO, pycurl.version)
-        self.log(LOG_INFO, pycurl.version_info())
+        syslog(pycurl.version)
+        syslog(pycurl.version_info())
         # This is the one (and only) CurlMulti object that this
         # Fetcher instance will use, until (unless) we pass
         # FETCHES_TO_LIVE and dereference it in cleanup()
-        self.log(LOG_DEBUG, "creating CurlMulti object")
+        syslog(LOG_DEBUG, "creating CurlMulti object")
         self.m = pycurl.CurlMulti()
         # Historically, there have been libcurl bugs associated with
         # pipelining.  It appears to work fine in v7.19.4.  Pipelining
@@ -366,7 +358,7 @@ info.
         # handshaking.  
         self.m.setopt(pycurl.M_PIPELINING, 1)
         self.m.handles = []
-        self.log(LOG_DEBUG, "allocating %d Curl objects" % self.MAX_CONNS)
+        syslog(LOG_DEBUG, "allocating %d Curl objects" % self.MAX_CONNS)
         for i in range(self.MAX_CONNS):
             try:
                 c = pycurl.Curl()
@@ -378,7 +370,7 @@ info.
                 # process without any threads, sustained fetching of
                 # hundreds of thousands has been observed without
                 # segfaulting or GILs,
-                self.log(LOG_INFO, "failed pycurl.Curl(): %s" % str(e))
+                syslog("failed pycurl.Curl(): %s" % str(e))
                 self.cleanup()
                 self.init_curl()
                 break
@@ -418,8 +410,8 @@ info.
             url_info.http_response,
             url_info.content_data,
            )
-        if errors: self.log(LOG_INFO, ", ".join(["[%s]" % x for x in errors]))
-        self.log(LOG_DEBUG, "outQ.put(%s)" % url_info.relurl)
+        if errors: syslog(", ".join(["[%s]" % x for x in errors]))
+        syslog(LOG_DEBUG, "outQ.put(%s)" % url_info.relurl)
         self.put_on_outQ(url_info)
 
     def retire(self, host):
@@ -442,7 +434,7 @@ info.
                     self.outQ.put_nowait(yzable)
                     break
                 except Queue.Full:
-                    self.log(LOG_DEBUG, "blocking on full outQ")
+                    syslog(LOG_DEBUG, "blocking on full outQ")
                     sleep(1)
 
     def schedule(self, host):
@@ -460,19 +452,14 @@ info.
         if next > self.end_time:
             self.retire(host)
             return
-        self.log(
+        syslog(
             LOG_DEBUG, 
             "%s --> pQ: %s in sec" % (host.hostkey, next - time()))
         self.pQ.put((next, host))
         host.scheduled = True
 
-    def log(self, priority=LOG_DEBUG, msg=None, step=None):
-        if msg is None: msg = self.msg(step)
-        if not isinstance(msg, basestring): msg = str(msg)
-        syslog(priority, msg)
-
     def msg(self, step):
-        return "%s%d / %d / %d (%d pending, next in %.0f sec), %d outQ, %d fetches" % (
+        msg = "%s%d / %d / %d (%d pending, next in %.0f sec), %d outQ, %d fetches" % (
             step and "%s: "%step or "",
             len(self.idlelist), 
             self.m and (len(self.m.handles) - len(self.freelist)) or 0,
@@ -481,6 +468,7 @@ info.
             self.pQ.top()[0] is not None and (self.pQ.top()[0] - time()) or -1,
             self.outQ and self.outQ.qsize() or 0,
             self.fetches)
+        syslog(LOG_DEBUG, msg)
 
     def run(self):
         """
@@ -491,31 +479,32 @@ info.
         self.packer here, and allow the calling process to handle all
         such updates by getting info out of outQ.
         """
+        self.prepare_process()
         # if SIMULATE is other than zero, it means fake it for that
         # many seconds and then exit, used for testing
         # PyCrawler.Server
         if self.SIMULATE > 0:
-            self.log(
+            syslog(
                 LOG_INFO, 
                 "fetcher is simulating with sleep(%d)" % self.SIMULATE)
             sleep(self.SIMULATE)
             return
         self.go.set()
-        self.log(LOG_INFO, "entering poll loop")
+        syslog("entering poll loop")
         # urls_in_flight includes an attempt at /robots.txt for each host
         self.urls_in_flight = len(self.packer) + len(self.packer.hosts)
         self.hosts = self.packer.dump()
         if self.urls_in_flight == 0:
-            self.log(LOG_NOTICE, "ERROR: tried to run without any URLs, exiting.")
+            syslog(LOG_NOTICE, "ERROR: tried to run without any URLs, exiting.")
             return
         # loop until no more in flight, or go has been cleared.
         while self.urls_in_flight > 0 and self.go.is_set():
-            self.log(LOG_DEBUG, step="outer loop")
+            self.msg("outer loop")
             if time() > self.end_time:
                 break
             if self.FETCHES_TO_LIVE is not None and \
                     self.FETCHES_TO_LIVE < self.fetches:
-                self.log(LOG_INFO, "past FETCHES_TO_LIVE, so purging hosts")
+                syslog("past FETCHES_TO_LIVE, so purging hosts")
                 self.cleanup()
             if self.m is None:
                 # all hosts should be in pQ or retired, so
@@ -526,17 +515,17 @@ info.
                 "lost track of conns: %d + %d + %d != %d" % \
                 (self.start_num_handles, len(self.freelist), 
                  len(self.idlelist), len(self.m.handles))
-            if self.hosts:  self.log(LOG_DEBUG, "creating %d Host objects" % len(self.hosts))
+            if self.hosts:  syslog(LOG_DEBUG, "creating %d Host objects" % len(self.hosts))
             while self.hosts and self.go.is_set():
                 (hostkey, relurls) = self.hosts.pop()
                 host = Host(self, hostkey, relurls)
                 self.pQ.put((host.next_time(), host))
             if len(self.pQ) == 0 and len(self.freelist) == len(self.m.handles):
-                self.log(LOG_DEBUG, "pQ is empty, and all conns are free... done.")
+                syslog(LOG_DEBUG, "pQ is empty, and all conns are free... done.")
                 break
             # If there is a free curl object, try to get a host for it
             while self.freelist and self.go.is_set():
-                self.log(LOG_DEBUG, step="getif")
+                self.msg("getif")
                 (priority, host) = self.pQ.getif(maxP = time())
                 if not host: break
                 host.scheduled = False
@@ -559,7 +548,7 @@ info.
                     self.schedule(c.host)
                 else:
                     while url_info is None and self.go.is_set():
-                        self.log(LOG_DEBUG, step="host.get_nowait")
+                        self.msg("host.get_nowait")
                         try:
                             priority, url_info = c.host.get_nowait()
                         except Queue.Empty:
@@ -597,13 +586,13 @@ info.
             # Run the internal curl state machine for the multi stack
             num_handles = self.start_num_handles
             while num_handles >= self.start_num_handles and self.go.is_set():
-                self.log(LOG_DEBUG, "perform")
+                syslog(LOG_DEBUG, "perform")
                 ret, num_handles = self.m.perform()
                 if ret != pycurl.E_CALL_MULTI_PERFORM:
                     break
             # Check for curl objects which have terminated, and add them to the freelist
             while self.go.is_set():
-                self.log(LOG_DEBUG, "info_read")
+                syslog(LOG_DEBUG, "info_read")
                 num_q, ok_list, err_list = self.m.info_read()
                 finished_list = []
                 for c in ok_list:
@@ -614,15 +603,15 @@ info.
                     effurl = c.getinfo(pycurl.EFFECTIVE_URL)
                     if effurl:
                         hostkey, relurl = URL.get_hostkey_relurl(effurl)
-                        #self.log(LOG_DEBUG, "effurl %s --> %s" % (effurl, relurl))
+                        #syslog(LOG_DEBUG, "effurl %s --> %s" % (effurl, relurl))
                         if hostkey and relurl:
                             c.url_info.hostkey = hostkey
                             c.url_info.relurl  = relurl
                         else:
-                            self.log(LOG_DEBUG, "This effurl did not make a hostkey and relurl: %s" % effurl)
+                            syslog(LOG_DEBUG, "This effurl did not make a hostkey and relurl: %s" % effurl)
                     # store download size (maybe was compressed)
                     c.url_info.len_fetched_data = c.getinfo(pycurl.SIZE_DOWNLOAD)
-                    self.log(
+                    syslog(
                         LOG_NOTICE, "%d bytes: %s%s" % 
                         (c.url_info.len_fetched_data, c.url_info.hostkey, c.url_info.relurl))
                     c.url_info.raw_data = c.fp.getvalue()
@@ -661,12 +650,12 @@ info.
                 if self.pQ.top()[0] is not None:
                     next = self.pQ.top()[0] - time() - 0.5
                     if next > 0:
-                        self.log(LOG_DEBUG, "SLEEPING FOR %s SECONDS" % next)
+                        syslog(LOG_DEBUG, "SLEEPING FOR %s SECONDS" % next)
                         sleep(next) # need way to break out of this on kill -2
         # broke out of the poll loop
-        self.log(LOG_DEBUG, "out of poll loop")
+        syslog(LOG_DEBUG, "out of poll loop")
         self.cleanup()
-        self.log(LOG_DEBUG, "Exiting.")
+        syslog(LOG_DEBUG, "Exiting.")
 
     def cleanup(self):
         """
@@ -676,33 +665,33 @@ info.
         """
         if self.m is not None:
             # rescue our url_info and hosts
-            self.log(LOG_INFO, "cleaning up")
+            syslog("cleaning up")
             for c in self.m.handles:
                 if c.url_info is not None:
-                    self.log(LOG_DEBUG, "cleanup: c.url_info --> None")
+                    syslog(LOG_DEBUG, "cleanup: c.url_info --> None")
                     c.url_info.state = PENDING
                     c.url_info.raw_data = ""
                     c.url_info.len_fetched_data = 0
                     c.host.put((c.url_info.depth, c.url_info))
                     c.url_info = None
                 if c.host is not None:
-                    #self.log(LOG_DEBUG, "cleanup: c.host --> None, %s c.host.conns~%d " + \
+                    #syslog(LOG_DEBUG, "cleanup: c.host --> None, %s c.host.conns~%d " + \
                     #             "and c.host.qsize~%d" % \
                     #         (c.host.hostkey, len(c.host.conns), c.host.qsize()))
                     if len(c.host.conns) == 1:
                         # this is the last conn for this host, so stuff host into a Q:
-                        self.log(
+                        syslog(
                             LOG_DEBUG, 
                             "cleanup: scheduling %s" % c.host.hostkey)
                         self.schedule(c.host)
-                    self.log(LOG_DEBUG, "c.host.conns.remove(c)")
+                    syslog(LOG_DEBUG, "c.host.conns.remove(c)")
                     c.host.conns.remove(c)
-                    self.log(LOG_DEBUG, "c.host = None")
+                    syslog(LOG_DEBUG, "c.host = None")
                     c.host = None
         tot = 0
         for priority, host in self.pQ:
             tot += len(host)  
-        self.log(LOG_DEBUG , "We have %d url_info dicts pending." % tot)
+        syslog(LOG_DEBUG, "We have %d url_info dicts pending." % tot)
         # simply dereference all the curl objects and let the gc handle it
         self.m = None
         self.idlelist = []
