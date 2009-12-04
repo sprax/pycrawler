@@ -81,6 +81,7 @@ signal(SIGPIPE, SIG_IGN)
 
 class URLinfo(nameddict, AnalyzerChain.Analyzable):
     defaults = {
+        "links": [],
         "metadata": {},
         "effurl": '',
         "hostkey": '',
@@ -317,7 +318,7 @@ info.
         self.USERAGENT = "Mozilla/5.0 (%s; +%s)" % \
             (self.CRAWLER_NAME, self.CRAWLER_HOMEPAGE)
         if not hasattr(self, "name"):
-            name = self.CRAWLER_NAME
+            self.name = self.CRAWLER_NAME
         Process.__init__(self, go)
         syslog("Created fetcher, useragent = %s" % self.USERAGENT)
         syslog("fetcher process name = %s" % self.name)
@@ -345,8 +346,8 @@ info.
         syslog("pycurl.global_init...")
         # This is not threadsafe.  See note above.
         pycurl.global_init(pycurl.GLOBAL_DEFAULT)
-        syslog(pycurl.version)
-        syslog(pycurl.version_info())
+        syslog(LOG_DEBUG, str(pycurl.version))
+        syslog(LOG_DEBUG, str(pycurl.version_info()))
         # This is the one (and only) CurlMulti object that this
         # Fetcher instance will use, until (unless) we pass
         # FETCHES_TO_LIVE and dereference it in cleanup()
@@ -416,7 +417,8 @@ info.
 
     def retire(self, host):
         """Put all url_info and host summary  in outQ"""
-        host.log(1, "retiring without processing %d URLs" % len(host))
+        syslog(LOG_DEBUG, "%s retiring without processing %d URLs" % 
+               (host.hostkey, len(host)))
         while 1:
             try:
                 p, u = host.get_nowait()
@@ -442,10 +444,10 @@ info.
         Put host in priority queue, unless an instance is already in the pQ
         or if politeness projects next fetch beyond fetcher lifetime.
         """
-        host.log(
+        syslog(
             LOG_DEBUG, 
-            "scheduling...:  scheduled=%s, len(conns)=%d" % \
-                (host.scheduled, len(host.conns)))
+            "%s scheduling...:  scheduled=%s, len(conns)=%d" % \
+                (host.hostkey, host.scheduled, len(host.conns)))
         if host.scheduled:
             return
         next = host.next_time()
@@ -490,7 +492,7 @@ info.
             sleep(self.SIMULATE)
             return
         self.go.set()
-        syslog("entering poll loop")
+        syslog(LOG_DEBUG, "Entering poll loop")
         # urls_in_flight includes an attempt at /robots.txt for each host
         self.urls_in_flight = len(self.packer) + len(self.packer.hosts)
         self.hosts = self.packer.dump()
@@ -504,7 +506,7 @@ info.
                 break
             if self.FETCHES_TO_LIVE is not None and \
                     self.FETCHES_TO_LIVE < self.fetches:
-                syslog("past FETCHES_TO_LIVE, so purging hosts")
+                syslog(LOG_DEBUG, "past FETCHES_TO_LIVE, so purging hosts")
                 self.cleanup()
             if self.m is None:
                 # all hosts should be in pQ or retired, so
@@ -541,10 +543,10 @@ info.
                 c = self.idlelist.pop()
                 if c.host.failed >= self.MAX_FAILURES_PER_HOST \
                         and c.host.succeeded == 0:
-                    c.host.log(LOG_INFO, "too many failures, retiring.")
+                    syslog(LOG_INFO, c.host.hostkey + "too many failures, retiring.")
                     self.retire(c.host)
                 elif c.stream_count >= self.MAX_STREAMED_REQUESTS:
-                    c.host.log(LOG_INFO, "streamed enough, scheduling for later")
+                    syslog(LOG_INFO, c.host.hostkey + "streamed enough, scheduling for later")
                     self.schedule(c.host)
                 else:
                     while url_info is None and self.go.is_set():
@@ -560,22 +562,23 @@ info.
                         try:
                             c.setopt(pycurl.URL, c.host.hostkey + url_info.relurl)
                         except Exception, e:
-                            c.host.log(0,
-                                "failed c.setopt(pycurl.URL, %s) --> %s " % \
-                                    (c.host.hostkey + repr(url_info.relurl), 
-                                      str(e)))
+                            syslog(LOG_NOTICE,
+                                "%s failed c.setopt(pycurl.URL, %s) --> %s " % \
+                                    (c.host.hostkey,
+                                     c.host.hostkey + repr(url_info.relurl), 
+                                     str(e)))
                             url_info.state = PYCURL_REJECTED
                             self.out_proc(url_info)
                             url_info = None
                             # loop again to try getting another
                             # url_info from this host
                 if not url_info:
-                    c.host.log(LOG_DEBUG, "disconnecting")
+                    syslog(LOG_DEBUG, c.host.hostkey + "disconnecting")
                     c.host.conns.remove(c)
                     c.host = None
                     self.freelist.append(c)
                     continue  # loop again
-                c.host.log(LOG_DEBUG, "popped: %s" % url_info.relurl)
+                syslog(LOG_DEBUG, "%s popped: %s" % (c.host.hostkey, url_info.relurl))
                 c.stream_count += 1
                 c.url_info = url_info
                 c.url_info.start = time()
@@ -616,16 +619,17 @@ info.
                         (c.url_info.len_fetched_data, c.url_info.hostkey, c.url_info.relurl))
                     c.url_info.raw_data = c.fp.getvalue()
                     c.url_info.state  = c.url_info.depth   # put the state back to being the depth
-                    c.host.log(
+                    syslog(
                         LOG_DEBUG, 
-                        "Success: %dB %s" % (c.url_info.len_fetched_data, c.url_info.relurl))
+                        "%s Success: %dB %s" % 
+                        (c.host.hostkey, c.url_info.len_fetched_data, c.url_info.relurl))
                     c.host.succeeded += 1
                     finished_list.append(c)
                 for c, errno, errmsg in err_list:
                     c.url_info.errno  = errno
                     c.url_info.errmsg = errmsg
                     c.url_info.state  = DEAD_LINK
-                    c.host.log(2, "Failed: %s (%s) %s" % (errmsg, errno, c.url_info.relurl))
+                    syslog(LOG_DEBUG, "%s Failed: %s (%s) %s" % (c.host.hostkey, errmsg, errno, c.url_info.relurl))
                     c.host.failed += 1
                     finished_list.append(c)
                 for c in finished_list:
