@@ -1,5 +1,5 @@
 """
-CrawlState provides an API to the CrawLState files
+CrawlStateManager provides an API to the CrawLState files
 
 """
 # $Id$
@@ -16,27 +16,19 @@ import os
 import sys
 import URL
 import gzip
+import Queue
+import operator
+import traceback
 import multiprocessing
 import cPickle as pickle
 from time import time, sleep
 from base64 import urlsafe_b64encode
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
+from Fetcher import URLinfo
 from Process import Process
 from hashlib import md5
-from AnalyzerChain import AnalyzerChain, GetLinks, SpeedDiagnostics
-
-LINK = "LINK"
-INLINK = "INLINK"
-FETCHED = "FETCHED"
-
-def make_hostid_bin(hostkey):
-    hostid = md5(hostkey).hexdigest()
-    hostbin = "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
-    return hostid, hostbin
-
-def make_docid(hostkey, relurl):
-    docid = md5(hostkey + relurl).hexdigest()
-    return docid
+from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, URLinfo_type, HostSummary_type
+from PersistentQueue import PersistentQueue
 
 class CrawlStateManager(Process):
     """Organizes crawler's state into flat files on disk, which it
@@ -71,7 +63,7 @@ The Analyzer created by CrawlState.make_analyzer() also stores info
 for every URL in files call CrawlState.PID.urls.  Three kinds of lines
 appear in CrawlState.PID.urls files:
 
-        0) hostbin, docid, type=LINK, hostid, urlsafe_b64encode(relurl)
+        0) hostbin, docid, type=LINK, hostid, hostkey + relurl
 
         1) hostbin, docid, type=FETCHED, score, depth, last_modified, http_response, link_ids, content_data
 
@@ -87,89 +79,114 @@ state using these steps:
         4) process each file to make a new file for each hostid that
            is stored in a directory called hostbin/hostid/urls.txt.gz
 
-             score, depth, urlsafe_b64encode(relurl)[, last_modified, http_response, link_ids, content_data]
+             score, depth, hostkey + relurl [, last_modified, http_response, link_ids, content_data]
 
            where the last four fields are not required.
 
 When that method returns, the crawler can continue.    
     """
     name = "CrawlStateManager"
-    def __init__(self, config):
+    def __init__(self, inQ, relay, config):
         """
         Setup a go Event
         """
         Process.__init__(self)
-        self.inQ = multiprocessing.Queue(1000)        
+        self.inQ = inQ
+        self.relay = relay
         self.config = config
+        data_path = os.path.join(config["data_path"], "urlQ")
+        self.urlQ = PersistentQueue(data_path)
 
     def run(self):
         """
-        """
-        self.prepare_process()
-        syslog("in csm")
-        while self.go.is_set():
-            sleep(1)
+        Moves records out of inQ and into urlQ
 
-    def make_rec_from_url(self, url):
+        Keeps next_packer primed with a new packer at all times
         """
-        0) hostbin, docid, type=LINK, hostid, urlsafe_b64encode(relurl)
-        """
-        hostkey, relurl = URL.get_hostkey_relurl(url)
-        hostid, hostbin = make_hostid_bin(hostkey)
-        docid = make_docid(hostkey, relurl)
-        rec = (hostbin, docid, LINK, hostid, urlsafe_b64encode(relurl))
-        return rec
+        try:
+            self.prepare_process()
+            while self.go.is_set():
+                if self.relay.next_packer is None:
+                    self.relay.next_packer = self.get_packer()
+                try:
+                    rec = self.inQ.get_nowait()
+                    syslog(LOG_DEBUG, "got rec from inQ, putting in urlQ")
+                    self.urlQ.put(rec)
+                except Queue.Empty:
+                    sleep(1)
+            syslog(LOG_DEBUG, "Syncing inQ")
+            self.urlQ.sync()
+        except Exception, exc:
+            syslog(LOG_NOTICE, traceback.format_exc(exc))
+        syslog(LOG_DEBUG, "Exiting")
 
     def make_analyzer(self):
-        os.makedirs(self.data_path + "/CrawlState")
-        output_path = self.data_path + "/CrawlState/%d.%.2f" % (self.pid, time())
         class CrawlStateAnalyzer(Analyzer):
-            output_path = output_path
             name = "CrawlStateAnalyzer"
-            def __init__(self, logger, output_path):
-                Analyzer.__init__(self, logger)
-            def prepare(self):
-                self.lines = 0
-                self.urls_fh = open(self.output_path + ".urls", "a")
-                self.hosts_fh = open(self.output_path + ".hosts", "a")
+            urlQ = self.urlQ
             def analyze(self, yzable):
                 if yzable.type == URLinfo_type:
-                    write_URLinfo(yzable, self.urls_fh)
-                    syslog("wrote lines for docid: " + yzable.docid)
+                    recs = make_recs_from_URLinfo(yzable)
+                    for rec in recs:
+                        self.urlQ.put(rec)
+                    syslog(LOG_DEBUG, "Created records for docid: " + yzable.docid)
                 elif yzable.type == HostSummary_type:
-                    write_HostSummary(yzable, self.hosts_fh)
-                    syslog("wrote line for hostid: " + yzable.hostid)
+                    #write_HostSummary(yzable, self.hosts_fh)
+                    syslog(LOG_DEBUG, "Wrote line for hostid: " + yzable.hostkey)
                 return yzable
             def cleanup(self):
-                for fh in [self.urls_fh, self.hosts_fh]:
-                    fh.flush()
-                    fh.close()
+                self.urlQ.sync()
         return CrawlStateAnalyzer
 
     def prepare_state(self):
         """Sort and bin all the state files
         """
-        pass
-
-    def import_received(self, files):
-        """
-        """
-        pass
+        syslog(LOG_DEBUG, "Preparing state.")
 
     def get_analyzerchain(self):
-        syslog("making an AnalyzerChain")
-        ac = AnalyzerChain()
-        syslog("adding generic Analyzers")
-        ac.add_analyzer(1, GetLinks, 10)
-        ac.add_analyzer(3, SpeedDiagnostics, 1)
-        #syslog("adding special Analyzers")
-        #ac.add_analyzer(2, self.make_analyzerclass(), 1)
-        syslog("calling start")
-        ac.start()
-        return ac
+        """
+        Creates an AnalyzerChain with these analyzers:
 
-    def get_packer_dump(self):
-        return URL.packer().dump()
+            GetLinks
+            SpeedDiagnostics
+            CrawlStateAnalyzer (with a handle to this.urlQ)
+
+        This starts the AnalyzerChain and returns it.
+        """
+        try:
+            ac = AnalyzerChain()
+            ac.add_analyzer(1, GetLinks, 10)
+            ac.add_analyzer(2, self.make_analyzer(), 1)
+            ac.add_analyzer(3, SpeedDiagnostics, 1)
+            ac.start()
+            return ac
+        except Exception, exc:
+            syslog(LOG_NOTICE, traceback.format_exc(exc))
+
+    def get_packer(self, max=100):
+        try:
+            packer = URL.packer()
+            count = 0
+            while count < max:
+                try:
+                    rec = self.urlQ.get_nowait()
+                except Queue.Empty:
+                    break
+                except Exception, exc:
+                    syslog(LOG_NOTICE, traceback.format_exc(exc))
+                # keep count of how many are in packer:
+                count += 1
+                parts = rec.split(DELIMITER)
+                if parts[2] == LINK:
+                    packer.add_url(parts[3])
+            if count == 0:
+                syslog(LOG_DEBUG, "No URLs from urlQ.")
+                return None
+            else:
+                syslog(LOG_DEBUG, "Created a packer of length %d" % count)
+                return packer
+        except Exception, exc:
+            syslog(LOG_NOTICE, traceback.format_exc(exc))
 
     def send_to_other_hostbins(self):
         # launch self.Sender to send hostbins assigned to other
@@ -197,7 +214,27 @@ LINK    = "0"
 FETCHED = "1"
 INLINK  = "2"
 
-def write_URLinfo(yzable, url_info_filehandle):
+def make_hostid_bin(hostkey):
+    hostid = md5(hostkey).hexdigest()
+    hostbin = "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
+    return hostid, hostbin
+
+def make_docid(hostkey, relurl):
+    docid = md5(hostkey + relurl).hexdigest()
+    return docid
+
+def make_recs_from_url(url):
+    """
+    Creates an Analyzable instance for the URL and passes it to
+    make_recs_from_URLinfo
+    """
+    hostkey, relurl = URL.get_hostkey_relurl(url)
+    hostid, out_hostbin = make_hostid_bin(hostkey)
+    out_docid = make_docid(hostkey, relurl)
+    row = DELIMITER.join([out_hostbin, out_docid, LINK, hostkey + relurl])
+    return [row]
+
+def make_recs_from_URLinfo(yzable):
     """
     Writes three kinds of lines to url_info_filehandle.  This writes
     two lines for every link found in the page: one containing the new
@@ -214,6 +251,8 @@ def write_URLinfo(yzable, url_info_filehandle):
     yzable.docid = make_docid(yzable.hostkey, yzable.relurl)
     # accumulate the outlinks
     out_docids = []
+    # accumulate the list of records to output
+    lines = []
     for hostkey, recs in yzable.links:
         # hostbin of the link's target host
         out_hostid, out_hostbin = make_hostid_bin(hostkey)
@@ -222,15 +261,15 @@ def write_URLinfo(yzable, url_info_filehandle):
             out_docids.append(out_docid)
             # create a row that stores just minimal info, so when we
             # sort -u, we only get one such line afterwards
-            row = "|".join([out_hostbin, out_docid, LINK, hostkey + relurl]) + "\n"
-            url_info_filehandle.write(row)
+            row = DELIMITER.join([out_hostbin, out_docid, LINK, hostkey + relurl])
+            lines.append(row)
             # create a row that will get sorted first by hostbin,
             # and then by docid.  page_docid is here so we can
             # count each inlink just once.  The score comes from
             # the page that links out to out_docid
-            row = "|".join([out_hostbin, out_docid, INLINK, str(depth),
-                            yzable.score, yzable.docid]) + "\n"
-            url_info_filehandle.write(row)
+            row = DELIMITER.join([out_hostbin, out_docid, INLINK, str(depth),
+                            yzable.score, yzable.docid])
+            lines.append(row)
     # now write content_data for this fetched doc
     yzable.link_ids = ",".join(out_docids)
     yzable.hostid, yzable.hostbin = make_hostid_bin(yzable.hostkey)
@@ -240,9 +279,10 @@ def write_URLinfo(yzable, url_info_filehandle):
         yzable.content_data = ""
     yzable.rec_type = FETCHED
     # use keys ordering defined above
-    row = "|".join([str(operator.attrgetter(param)(yzable))
-                    for param in content_data_keys]) + "\n"
-    url_info_filehandle.write(row)
+    row = DELIMITER.join([str(operator.attrgetter(param)(yzable))
+                    for param in content_data_keys])
+    lines.append(row)
+    return lines
 
 hostsummary_keys = ["next_time", "hostbin", "hostkey",
                     "total_hits", "total_bytes",
@@ -254,3 +294,17 @@ def write_HostSummary(yzable, hostsummary_filehandle):
         [str(operator.attrgetter(param)(yzable))
          for param in hostsummary_keys]) + "\n"
     hostsummary_filehandle.write(row)
+
+def get_all(data_path):
+    queue = PersistentQueue(data_path)
+    while 1:
+        try:
+            rec = queue.get()
+        except Queue.Empty:
+            break
+        print rec.split(DELIMITER)
+    queue.sync()
+
+def stats(data_path):
+    queue = PersistentQueue(data_path)
+    print "URL queue has %d records, not de-duplicated" % len(queue)
