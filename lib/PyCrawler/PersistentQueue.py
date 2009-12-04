@@ -25,11 +25,22 @@ from Process import Process
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
 
+class LineFiles:
+    def load(self, file):
+        ret = []
+        for line in file.readlines():
+            line = line.strip()
+            if line:
+                ret.append(line)
+        return ret
+    def dump(self, lines, file):
+        file.write("\n".join(lines) + "\n")
+
 class PersistentQueue:
     """
     Provides a Queue interface to a set of flat files stored on disk.
     """
-    def __init__(self, data_path, cache_size=512, marshal=marshal):
+    def __init__(self, data_path, cache_size=512, marshal=LineFiles()):
         """
         Create a persistent FIFO queue named by the 'data_path' argument.
 
@@ -47,6 +58,9 @@ class PersistentQueue:
         self.temp_file = os.path.join(data_path, "tempfile")        
         self.semaphore = multiprocessing.Semaphore()
         self._init_index()
+
+        self.get_nowait = self.get
+        self.put_nowait = self.put
 
     def _init_index(self):
         if not os.path.exists(self.data_path):
@@ -162,6 +176,7 @@ class PersistentQueue:
                 self._split()
         finally:
             self.semaphore.release()
+            #self.sync()
 
     def get(self):
         """
