@@ -17,7 +17,7 @@ import multiprocessing
 from time import time, sleep
 from random import random
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Process import Process
+from Process import Process, multi_syslog
 from TextProcessing import get_links
 
 URLinfo_type = "URLinfo"
@@ -108,7 +108,7 @@ class AnalyzerChain(Process):
                     yzables_in.append(yzable)
                     self.in_flight += 1
                     self.total_processed += 1
-                    syslog("inQ gave yzable.type=" + yzable.type)
+                    syslog(LOG_DEBUG, "inQ gave yzable.type=" + yzable.type)
                 except Queue.Empty:
                     pass
                 for pos in positions:
@@ -241,7 +241,7 @@ class Analyzer(Process):
         """
         self.prepare_process()
         self.prepare()
-        syslog("starting")
+        syslog(LOG_DEBUG, "Starting.")
         try:
             while self.go.is_set():
                 try:
@@ -252,21 +252,25 @@ class Analyzer(Process):
                 try:
                     yzable = self.analyze(yzable)
                 except Exception, exc:
-                    syslog(
-                        LOG_NOTICE, "Encountered error while processing: %s%s --> %s" % (
+                    multi_syslog(
+                        LOG_NOTICE, 
+                        "Encountered error while processing: %s%s --> %s" % (
                             yzable.hostkey, 
                             hasattr(yzable, "relurl") and yzable.relurl or "", 
                             traceback.format_exc(exc)))
                 self.outQ.put(yzable)
         except Exception, exc:
-            syslog("while self.go.is_set() loop had: %s" % traceback.format_exc(exc))
+            multi_syslog(
+                LOG_DEBUG, 
+                "While self.go.is_set() loop had: %s" % 
+                traceback.format_exc(exc))
         try:
             self.inQ.close()
             self.inQ.cancel_join_thread()
             self.outQ.close()
             self.outQ.cancel_join_thread()
         except Exception, exc:
-            syslog(traceback.format_exc(exc))
+            multi_syslog(traceback.format_exc(exc))
         self.cleanup()
 
     def analyze(self, yzable):
@@ -340,7 +344,7 @@ class GetLinks(Analyzer):
                 yzable.relurl, 
                 yzable.raw_data, 
                 yzable.depth)
-            if errors: syslog(", ".join(["[%s]" % x for x in errors]))
+            if errors: syslog(LOG_DEBUG, ", ".join(["[%s]" % x for x in errors]))
             yzable.links = host_and_relurls_list
         return yzable
 
@@ -486,6 +490,6 @@ class SpeedDiagnostics(Analyzer):
                 tot += count
             for bin, count in bins:
                 out += "%s --> %s, %.1f\n" % (bin, count, count / tot)
-        syslog(out)
+        multi_syslog(LOG_NOTICE, out)
         syslog("SpeedDiagnostics finished")
 
