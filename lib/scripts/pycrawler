@@ -1,0 +1,28 @@
+#!/usr/bin/python
+"""
+Tools for interacting with PyCrawler's crawl state via
+PyCrawler.CrawlStateManager
+"""
+# $Id$
+__author__ = "John R. Frank"
+__copyright__ = "Copyright 2009, John R. Frank"
+__license__ = "MIT License"
+__version__ = "0.1"
+
+import sys
+sys.path.append(".")
+import PyCrawler
+from optparse import OptionParser
+
+parser = OptionParser()
+parser.add_option("--merge",    action="store_true", dest="merge",    default=False,  help="Load all filenames specified by args, checks first if each file is a gzip'ed packer dumps and then checks for one-URL-per-line, and merges them together in a single packer.  Dumps the merged packer to a gzip'ed JSON file that can be loaded by other components.")
+parser.add_option("--stats",    action="store_true", dest="stats",    default=False,  help="describe state of the urlQ specified by --data-path.")
+parser.add_option("--get-all-urls",    action="store_true", dest="get_all",    default=False,  help="Get all URLs of the urlQ specified by --data-path.")
+parser.add_option("--data-path", dest="data_path", default="/var/lib/pycrawler/urlQ")
+(options, args)= parser.parse_args()
+
+if options.get_all:
+    PyCrawler.CrawlStateManager.get_all(options.data_path)
+
+if options.stats:
+    PyCrawler.CrawlStateManager.stats(options.data_path)
