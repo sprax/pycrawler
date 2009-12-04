@@ -15,7 +15,7 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import URL
-from Server import FetchServer, FetchClient, PORT, AUTHKEY, DATA_PATH
+from Server import FetchServer, FetchClient, PORT, AUTHKEY
 from Fetcher import Fetcher, URLinfo, HostSummary
 from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, SpeedDiagnostics
 from TextProcessing import is_text
