@@ -5,7 +5,8 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import multiprocessing
-from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
 
 class Process(multiprocessing.Process):
     """
@@ -13,6 +14,8 @@ class Process(multiprocessing.Process):
     used throughout PyCrawler.  These include a go event and syslog
     usage.
     """
+    debug = False
+
     def __init__(self, go=None):
         """
         Keep self.name as its previously set value, or replace it with
@@ -30,10 +33,25 @@ class Process(multiprocessing.Process):
         """
         Set the go Event and open the syslog
         """
+        #for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
+        #    signal(sig, SIG_IGN)
         self.go.set()
         openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
+        if not self.debug:
+            setlogmask(LOG_UPTO(LOG_INFO))
 
     def stop(self):
         syslog(LOG_DEBUG, "Stop called.")
         self.go.clear()
 
+def multi_syslog(level=LOG_DEBUG, msg=None):
+    if msg is None:
+        if type(level) is str:
+            msg = level
+            level = LOG_DEBUG
+        else:
+            raise Exception("")
+    rows = msg.splitlines()
+    def log(row):
+        syslog(level, row)
+    map(log, rows)
