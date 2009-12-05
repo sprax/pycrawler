@@ -8,6 +8,7 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import sys
+sys.path.extend(".")
 import traceback
 import multiprocessing
 from time import time, sleep
@@ -60,8 +61,8 @@ def main(options, args):
         try:
             import daemon
             print "Entering DaemonContext.  Logging to syslog."
-            with daemon.DaemonContext():
-                wait_for_finish(ac, fetcher, quiet=options.quiet)
+            #with daemon.DaemonContext():
+            #    wait_for_finish(ac, fetcher, quiet=options.quiet)
         except Exception, exc:
             print "Unable to daemonize.  Apparently python-daemon is not installed?"
             sys.exit(traceback.format_exc(exc))
@@ -114,7 +115,7 @@ if __name__ == "__main__":
     parser.add_option("--output",          dest="output",           default="",   help="File path for storing discovered links.")
     parser.add_option("--input",           dest="input",            default=None, help="File path for loading a packed list of URLs.")
     parser.add_option("--homepage",        dest="homepage",         default=None, help="Homepage of your crawler, for user-agent string.")
-    parser.add_option("--name",            dest="name",             default=None, help="Name of your crawler, for user-agent and robots.txt checking.")
+    parser.add_option("--name",            dest="name",             default="PyCrawler", help="Name of your crawler, for user-agent and robots.txt checking.")
     parser.add_option("--daemonize",       dest="daemonize", action="store_true", default=False, help="Cause the fetcher to separate from your shell and run in the background.")
     parser.add_option("--quiet",           dest="quiet",     action="store_true", default=False, help="Print only DEBUG_INFO and higher priority information.")
     (options, args)= parser.parse_args()
