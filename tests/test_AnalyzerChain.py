@@ -13,7 +13,7 @@ import traceback
 sys.path.append(os.path.join(os.getcwd(), "lib"))
 
 try:
-    from PyCrawler import AnalyzerChain, Analyzer, URLinfo, GetLinks, LogInfo
+    from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo
 except Exception, exc:
     msg = "Failed to import PyCrawler.\n"
     msg += "Were you running tests from trunk/ ?\n"
@@ -42,7 +42,7 @@ def test(with_broken_analyzer=False):
     openlog("AnalyzerChainTest", LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
 
     syslog(LOG_DEBUG, "making an AnalyzerChain")
-    ac = AnalyzerChain()
+    ac = AnalyzerChain(debug=True)
 
     def stop(a=None, b=None):
         syslog(LOG_DEBUG, "received %s" % a)
@@ -61,22 +61,23 @@ def test(with_broken_analyzer=False):
     ac.add_analyzer(1, GetLinks, 10)
     ac.add_analyzer(3, LogInfo, 1)
 
-    syslog(LOG_DEBUG, "Making URLinfo")
+    syslog(LOG_DEBUG, "Making FetchInfo")
     hostkey = "http://www.cnn.com"
     text = "This is a test document." #urllib.urlopen(hostkey).read()
-    u = URLinfo({
+    u = FetchInfo(attrs={
             "hostkey": hostkey, 
             "relurl":  "/", 
             "depth":   0, 
             "last_modified": 0,
+            "raw_data": text
             }) 
-    u.raw_data = text
+    syslog("constructed an FetchInfo with  str:" + str(u))
 
     syslog(LOG_DEBUG, "calling start")
     ac.start()
     syslog(LOG_DEBUG, "start returned")
 
-    syslog(LOG_DEBUG, "putting a URLinfo into the chain")
+    syslog(LOG_DEBUG, "putting a FetchInfo into the chain")
     ac.inQ.put(u)
 
     while True:
