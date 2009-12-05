@@ -8,24 +8,84 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
-import os
-import sys
 import URL
 import Queue
 import traceback
+from nameddict import nameddict, SafeStr
 import multiprocessing
 from time import time, sleep
 from random import random
-from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
+from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 from TextProcessing import get_links
 
-URLinfo_type = "URLinfo"
-HostSummary_type = "HostSummary_type"
+class Analyzable(nameddict): 
+    """
+    Base class for all data bundles passed through AnalyzerChain.
 
-class Analyzable:
-    def __init__(self, yzable_type=None):
-        self.type = yzable_type
+    The AnalyzerChain passes data bundles from Analyzer to Analzyer in
+    the chain.  These data bundles must be subclasses of Analyzable.
+
+    As a subclass of nameddict, this is picklable, so it can pass
+    through multiprocessing.Queue and the like.  Also, the nameddict
+    provides a single-line serialization scheme that enables the
+    CrawlStateManager to store the two primary types of Analyzables in
+    the disk-sort-ready PersistentQueue.
+    """
+    pass
+
+class FetchInfo(Analyzable):
+    """
+    This carries the primary information about a fetched document.  It
+    stores this information in the nameddict structure of an
+    Analyzable.
+    """
+    _defaults = {
+        "links": [],
+        "metadata": {},
+        "hostkey": "",
+        "relurl": "",
+        "docid": "",
+        "hostid": "",
+        "hostbin": "",
+        "depth": 0,
+        "last_modified": 0,
+        "http_response": None,
+        "state": None,
+        "start": 0.,
+        "end": 0.,
+        "status": 0,
+        "errno": 0,
+        "errmsg": '',
+        "len_fetched_data": 0,
+        "raw_data": '',
+        "content_data": None,
+        "score": 0.,
+        }
+
+    # This establishes the order of the fields in instances of
+    # PersistentQueue managed by CrawlStateManager
+    _key_ordering = [
+        "hostbin", "docid", "state", "score",
+        "hostid", "hostkey", "relurl"]
+    
+    _val_types = [
+        str, str, int, float,
+        str, str, SafeStr]
+
+    def __init__(self, attrs=None, key_ordering=None, val_types=None, url=None):
+        """
+        Sets up the Analyzable nature of FetchInfo.
+
+        If provided, 'url' is parsed to get hostkey and relurl.
+
+        This computes hostid, hostbin, and docid.
+        """
+        Analyzable.__init__(self, attrs, key_ordering, val_types)
+        if url is not None:
+            self.hostkey, self.relurl = URL.get_hostkey_relurl(url)
+        self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
+        self.docid = URL.make_docid(self.hostkey, self.relurl)
 
 class InvalidAnalyzer(Exception): pass
 
@@ -33,10 +93,11 @@ class AnalyzerChainPositionConflict(Exception): pass
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"
-    def __init__(self, go=None):
+    def __init__(self, go=None, debug=False):
         """
         Setup inQ and go Event
         """
+        self.debug = debug
         Process.__init__(self)
         self.inQ  = multiprocessing.Queue(10)
         self.analyzers = {}
@@ -86,7 +147,7 @@ class AnalyzerChain(Process):
         positions = self.analyzers.keys()
         positions.sort()
         if not positions: 
-            syslog("run called without any analyzers")
+            syslog(LOG_NOTICE, "run called without any analyzers")
             return
         # start all the analyzers as children
         for pos in self.analyzers:
@@ -96,7 +157,7 @@ class AnalyzerChain(Process):
                 yzer.start()
                 self.analyzers[pos][i] = yzer
         # Now run the chain
-        syslog("starting AnalyzerChain loop")
+        syslog(LOG_DEBUG, "Starting AnalyzerChain loop")
         try:
             while self.go.is_set() or self.in_flight > 0:
                 self.msg("outer loop")
@@ -108,7 +169,7 @@ class AnalyzerChain(Process):
                     yzables_in.append(yzable)
                     self.in_flight += 1
                     self.total_processed += 1
-                    syslog(LOG_DEBUG, "inQ gave yzable.type=" + yzable.type)
+                    syslog(LOG_DEBUG, "inQ gave yzable=" + repr(yzable))
                 except Queue.Empty:
                     pass
                 for pos in positions:
@@ -158,7 +219,7 @@ class AnalyzerChain(Process):
                 # inQ.  But first, decrement in_flight by the number
                 # we took off the last position in the chain.
                 for yzable in yzables_out:
-                    self.msg("out gave yzable.type=" + yzable.type)
+                    self.msg("out gave yzable=" + repr(yzable))
                     self.in_flight -= 1
                     # delete each yzable as it exits the chain
                     del(yzable)
@@ -180,7 +241,7 @@ class AnalyzerChain(Process):
                         syslog("%s (%d): %s" % (yzer.name, yzer.pid, exc))
             syslog("stopped all Analyzers in AnalyzerChain")
         except Exception, exc:
-            syslog("main loop: " + traceback.format_exc(exc))
+            multi_syslog("In main loop: " + traceback.format_exc(exc))
 
     def pop_all(self, pos):
         "attempt to get yzables out of yzers at pos"
@@ -305,7 +366,7 @@ class DumpLinks(Analyzer):
     def analyze(self, yzable):
         """uses TextProcessing.get_links to get URLs out of each page
         and stores them in this GetLink instance's packer"""
-        if yzable.type == URLinfo_type:
+        if isinstance(yzable, FetchInfo):
             #syslog(yzable.raw_data)
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
@@ -337,7 +398,7 @@ class GetLinks(Analyzer):
     def analyze(self, yzable):
         """uses TextProcessing.get_links to get URLs out of each page
         and pass it on as an attr of the yzable"""
-        if yzable.type == URLinfo_type:
+        if isinstance(yzable, FetchInfo):
             #syslog(yzable.raw_data)
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
@@ -348,32 +409,12 @@ class GetLinks(Analyzer):
             yzable.links = host_and_relurls_list
         return yzable
 
-class SaveCrawlState(Analyzer):
-    name = "SaveCrawlState"
-    def prepare(self):
-        self.lines = 0
-        self.output_path = "CrawlState.%d" % self.pid
-        self.urls_fh = open(self.output_path + ".urls", "a")
-        self.hosts_fh = open(self.output_path + ".hosts", "a")
-    def analyze(self, yzable):
-        if yzable.type == URLinfo_type:
-            URL.write_URLinfo(yzable, self.urls_fh)
-            syslog("wrote lines for docid: " + yzable.docid)
-        elif yzable.type == HostSummary_type:
-            URL.write_HostSummary(yzable, self.hosts_fh)
-            syslog("wrote line for hostid: " + yzable.hostid)
-        return yzable
-    def cleanup(self):
-        for fh in [self.urls_fh, self.hosts_fh]:
-            fh.flush()
-            fh.close()
-
 class MakeContentData(Analyzer):
     name = "MakeContentData"
     def analyze(self, yzable):
         """uses TextProcessing.get_links to get URLs out of each page
         and stores them in this GetLink instance's packer"""
-        if yzable.type == URLinfo_type:
+        if isinstance(yzable, FetchInfo):
             #syslog(yzable.raw_data)
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
@@ -405,7 +446,7 @@ class LogInfo(Analyzer):
         syslog("Prepare.")
     def analyze(self, yzable):
         syslog("Analyze called with %s" % yzable)
-        if yzable.type == "URLinfo":
+        if isinstance(yzable, FetchInfo):
             syslog("Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
         return yzable
     def cleanup(self):
@@ -422,7 +463,7 @@ class SpeedDiagnostics(Analyzer):
     def analyze(self, yzable):
         """for URLinfo objects, store the key timing and success/failure info"""
         #syslog(str(yzable))
-        if yzable.type == URLinfo_type:
+        if isinstance(yzable, FetchInfo):
             self.deltas.append((yzable.end - yzable.start, yzable.state))
             self.arrivals.append(time() - self.start_time)
         return yzable
@@ -462,7 +503,7 @@ class SpeedDiagnostics(Analyzer):
                 else:          # means rejected for some reason
                     failure += 1
             begin = end        # bottom index of the next bin
-            out += "%.f%%\t%.4f sec\t%.4f per sec\t%d (%.2f%%) succeeded\t%d failed\n" % \
+            out += "%.f%%    %.4f sec    %.4f per sec    %d (%.2f%%) succeeded    %d failed\n" % \
                   (frac * 100, t, rate, success, 100.*success/num_per_frac, failure)
         # arrival time processing
         #arrivals.sort()
