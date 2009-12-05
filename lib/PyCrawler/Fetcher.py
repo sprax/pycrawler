@@ -57,19 +57,14 @@ import pycurl
 # curl_init function instead...
 #pycurl.global_init(pycurl.GLOBAL_DEFAULT)
 
-import re
-import sys
 import URL
 import Queue
 import robotparser
 import AnalyzerChain
 import PriorityQueue
-import multiprocessing
 from time import time, sleep
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Process import Process
-from nameddict import nameddict
-from TextProcessing import get_links
 try:
     from cStringIO import StringIO
 except:
@@ -79,34 +74,8 @@ except:
 from signal import signal, SIGPIPE, SIG_IGN
 signal(SIGPIPE, SIG_IGN)
 
-class URLinfo(nameddict, AnalyzerChain.Analyzable):
-    defaults = {
-        "links": [],
-        "metadata": {},
-        "effurl": '',
-        "hostkey": '',
-        "relurl": '',
-        "depth": 0,
-        "last_modified": 0,
-        "http_response": None,
-        "state": PENDING,
-        "start": 0.,
-        "end": 0.,
-        "status": 0,
-        "errno": 0,
-        "errmsg": '',
-        "len_fetched_data": 0,
-        "raw_data": '',
-        "content_data": None,
-        "score": 0.,
-        }
-    def __init__(self, info):
-        self.defaults.update(info)
-        nameddict.__init__(self, self.defaults)
-        AnalyzerChain.Analyzable.__init__(self, AnalyzerChain.URLinfo_type)
-
-class HostSummary(nameddict, AnalyzerChain.Analyzable):
-    defaults = {
+class HostInfo(AnalyzerChain.Analyzable):
+    _defaults = {
         "hostkey": '',
         "total_hits": 0,
         "total_bytes": 0,
@@ -114,10 +83,23 @@ class HostSummary(nameddict, AnalyzerChain.Analyzable):
         "end_time": 0.,
         "next_time": 0.,
         }
-    def __init__(self, info):
-        self.defaults.update(info)
-        nameddict.__init__(self, self.defaults)
-        AnalyzerChain.Analyzable.__init__(self, AnalyzerChain.HostSummary_type)
+    
+    _key_ordering = [
+        "next_time", "hostbin", "hostkey",
+        "total_hits", "total_bytes",
+        "start_time", "end_time"]
+
+    _val_types = [
+        float, str, str,
+        int, int,
+        float, float]
+
+    def __init__(self, attrs=None, key_ordering=None, val_types=None, url=None):
+        """
+        
+        """
+        AnalyzerChain.Analyzable.__init__(self, attrs, key_ordering, val_types)
+        self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
 
 class Host(PriorityQueue.Queue):
     """
@@ -141,7 +123,7 @@ class Host(PriorityQueue.Queue):
             # depth prioritizes relurls.  In principle, this should be
             # something more general.
             self.put((depth, 
-                      URLinfo({
+                      AnalyzerChain.FetchInfo({
                             "hostkey": hostkey, 
                             "relurl":  relurl, 
                             "depth":   depth, 
@@ -168,7 +150,7 @@ class Host(PriorityQueue.Queue):
         if 0 <= self.robots_next < time():
             self.robots_next = -1  # set to pending
             syslog(LOG_DEBUG, "put(/robots.txt)")
-            robots_info = URLinfo({
+            robots_info = AnalyzerChain.FetchInfo({
                     "hostkey": self.hostkey, 
                     "relurl":  "/robots.txt",
                     "depth":  1,  # meaning one above a human-created seed
@@ -216,8 +198,8 @@ class Host(PriorityQueue.Queue):
         if self.start_time is None:
             return 0
         return self.start_time + \
-            max(self.total_bytes / self.fetcher.MAX_BURST_BYTE_RATE,
-                self.total_hits  / self.fetcher.MAX_BURST_HITS_RATE)
+            max(self.total_bytes / self.fetcher.MAX_BYTE_RATE,
+                self.total_hits  / self.fetcher.MAX_HITS_RATE)
 
     def update(self, url_info):
         """ update the hosts info for polite behavior """
@@ -246,7 +228,7 @@ class Host(PriorityQueue.Queue):
         # different host, and thus this host should get destroyed.
 
     def get_summary(self):
-        return HostSummary({
+        return HostInfo({
                 "hostkey": self.hostkey,
                 "total_hits": self.total_hits,
                 "total_bytes": self.total_bytes,
@@ -277,7 +259,7 @@ The input method for giving URLs to a Fetcher instance is through its
 documentation for PyCrawler.URL).
 
 The Fetcher class has an outQ that contains URLinfo instances with the
-results of a fetch and also HostSummary instances with host update
+results of a fetch and also HostInfo instances with host update
 info.
     """
     ACCEPTED_SCHEMES = ('http',) # 'https', 'ftp', 'ftps', 'scp', 'sftp', 'tftp', 'telnet', 'dict', 'ldap', 'ldaps')
@@ -287,8 +269,8 @@ info.
     DOWNLOAD_TIMEOUT = 30   # download timeout, pycurl will end downloads that take longer
     MAX_CONNS = 128                    # num easy Curl objects to create
     MAX_CONNS_PER_HOST = 2             # num open connections allow per host
-    MAX_BURST_HITS_RATE = 4 / 60.      # four per minute
-    MAX_BURST_BYTE_RATE = 8 * 2**10    # 8 KB/sec
+    MAX_HITS_RATE = 4 / 60.            # four per minute
+    MAX_BYTE_RATE = 8 * 2**10          # 8 KB/sec
     MAX_STREAMED_REQUESTS = 100        # max number of streamed requests to allow before re-evaluating politeness
     MAX_FAILURES_PER_HOST = 5          # retires a host after this many
     FETCHES_TO_LIVE = None             # re-initializes all the libcurl objects after this many fetches
@@ -611,7 +593,7 @@ info.
                             c.url_info.hostkey = hostkey
                             c.url_info.relurl  = relurl
                         else:
-                            syslog(LOG_DEBUG, "This effurl did not make a hostkey and relurl: %s" % effurl)
+                            syslog(LOG_INFO, "This effurl did not make a hostkey and relurl: %s" % effurl)
                     # store download size (maybe was compressed)
                     c.url_info.len_fetched_data = c.getinfo(pycurl.SIZE_DOWNLOAD)
                     syslog(

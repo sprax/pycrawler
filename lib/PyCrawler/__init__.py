@@ -16,6 +16,6 @@ __version__ = "0.1"
 
 import URL
 from Server import FetchServer, FetchClient, PORT, AUTHKEY
-from Fetcher import Fetcher, URLinfo, HostSummary
-from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, SpeedDiagnostics
+from Fetcher import Fetcher, HostInfo
+from AnalyzerChain import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo, SpeedDiagnostics
 from TextProcessing import is_text

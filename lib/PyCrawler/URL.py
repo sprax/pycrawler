@@ -38,6 +38,23 @@ TODO:
         Return a 6-tuple: (scheme, netloc, path, params, query, fragment).
 """
 
+def make_hostid_bin(hostkey):
+    """
+    Returns the hostid for the hostkey, which is just the hexdigest of
+    the md5 sum, and also the hostbin, which is the three directory
+    tiers built from the hostid.
+    """
+    hostid = md5(hostkey).hexdigest()
+    hostbin = "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
+    return hostid, hostbin
+
+def make_docid(hostkey, relurl):
+    """
+    Constructs a docid for the absolute URL (is hexdigest of md5 sum)
+    """
+    docid = md5(hostkey + relurl).hexdigest()
+    return docid
+
 def get_hostkey_relurl(url, schemes=("http", "https")):
     """
     Cleanly splits an absolute URL into two strings:
