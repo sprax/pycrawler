@@ -24,11 +24,11 @@ import cPickle as pickle
 from time import time, sleep
 from base64 import urlsafe_b64encode
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Fetcher import URLinfo
+from Fetcher import HostInfo
 from Process import Process
 from hashlib import md5
-from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, URLinfo_type, HostSummary_type
-from PersistentQueue import PersistentQueue
+from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, FetchInfo
+from PersistentQueue import PersistentQueue, LineFiles
 
 class CrawlStateManager(Process):
     """Organizes crawler's state into flat files on disk, which it
@@ -60,42 +60,28 @@ These files require de-duplication between runs.
 === Aspects of per-URL state ===
 
 The Analyzer created by CrawlState.make_analyzer() also stores info
-for every URL in files call CrawlState.PID.urls.  Three kinds of lines
-appear in CrawlState.PID.urls files:
+for every URL in instances of PersistentQueue for each hostid.  The
+records in this queue are:
 
-        0) hostbin, docid, type=LINK, hostid, hostkey + relurl
+  docid, state, depth, hostkey, relurl, inlinking docid, last_modified, http_response, content_data
 
-        1) hostbin, docid, type=FETCHED, score, depth, last_modified, http_response, link_ids, content_data
-
-        2) hostbin, docid, type=INLINK,  score, depth, inlinking docid
-
-Between crawls, the CrawlState.update_files() method re-organizes the
-state using these steps:
-
-        1) 'sort -u' all CrawlState.PID.urls files
-        2) send to appropriate bins
-        3) 'sort -u' again
-
-        4) process each file to make a new file for each hostid that
-           is stored in a directory called hostbin/hostid/urls.txt.gz
-
-             score, depth, hostkey + relurl [, last_modified, http_response, link_ids, content_data]
-
-           where the last four fields are not required.
-
-When that method returns, the crawler can continue.    
+To generate packers for the internal packerQ, the CrawlStateManager
+periodically sorts and merges all the records in an individual host's
+queue.
     """
     name = "CrawlStateManager"
-    def __init__(self, inQ, relay, config):
+    def __init__(self, id, inQ, outQ, relay, config, debug=False):
         """
         Setup a go Event
         """
+        self.id = id
+        if "debug" in config:
+            self.debug = config["debug"]
         Process.__init__(self)
         self.inQ = inQ
+        self.outQ = outQ
         self.relay = relay
         self.config = config
-        data_path = os.path.join(config["data_path"], "urlQ")
-        self.urlQ = PersistentQueue(data_path)
 
     def run(self):
         """
@@ -105,43 +91,128 @@ When that method returns, the crawler can continue.
         """
         try:
             self.prepare_process()
+            self.hosts_inQ = PersistentQueue(
+                os.path.join(config["data_path"], "hosts_inQ"),
+                LineFiles)
+            self.hosts_readyQ = PersistentQueue(
+                os.path.join(config["data_path"], "hosts_readyQ"),
+                LineFiles)
+            self.hosts_pendingQ = PersistentQueue(
+                os.path.join(config["data_path"], "hosts_pendingQ"),
+                LineFiles)
+            self.packerQ = PersistentQueue(
+                os.path.join(config["data_path"], "packerQ"))
+                # use the default, which is cPickle
             while self.go.is_set():
-                if self.relay.next_packer is None:
-                    self.relay.next_packer = self.get_packer()
+                if len(self.packerQ) < 5:
+                    self.make_another_packer()
+                if len(self.packerQ) > 0 and \
+                        self.relay.next_packer is None:
+                    self.relay.next_packer = self.packerQ.get()
                 try:
-                    rec = self.inQ.get_nowait()
-                    syslog(LOG_DEBUG, "got rec from inQ, putting in urlQ")
-                    self.urlQ.put(rec)
+                    url_info = self.inQ.get_nowait()
+                    self.put(url_info)
                 except Queue.Empty:
                     sleep(1)
             syslog(LOG_DEBUG, "Syncing inQ")
-            self.urlQ.sync()
+            self.hostQ.sync()
+            self.packerQ.sync()
         except Exception, exc:
             syslog(LOG_NOTICE, traceback.format_exc(exc))
         syslog(LOG_DEBUG, "Exiting")
 
+    def make_another_packer(self, max_total_urls=100, max_urls_per_host=100):
+        """
+        Gets hosts from the hosts_readyQ, and makes a packer with up
+        to max_urls distinct URLs in it.  The number of hosts varies
+        up to max_urls_per_host
+
+        When it runs out of hosts, it waits until the fetcher stops,
+        and then it merges the hosts_pendingQ and hosts_inQ together
+        to make a new hosts_readyQ.
+
+        A similar process happens for urls_inQ, urls_readyQ,
+        urls_pendingQ for each host.
+
+        """
+        packer = URL.packer()
+        num_urls = 0
+        host_factory = HostSummary()
+        while num_urls < max_total_urls:
+            host = self.get_next_host()
+            try:
+                # get a host with next_fetch_time earlier than now
+                host = self.hosts_readyQ.getif(maxP=time())
+            except Queue.Empty:
+                break
+            host = host_factory.fromstr(host)
+            host_data_path = os.path.join(
+                config["data_path"], info.hostbin, info.hostid, "urls_readyQ")
+            urls_readyQ = PersistentQueue(host_data_path)            
+            while num_urls < max_total_urls and \
+                    num_per_host < max_urls_per_host:
+                try:
+                    fetch_info = url_readyQ.get()
+                except Queue.Empty:
+                    ### do the merge of other queues to make a new
+                    ### urls_readyQ for this host
+                    break
+                # keep count of how many are in packer:
+                num_urls += 1
+                packer.add_fetch_info(fetch_info)
+        if count == 0:
+            syslog(LOG_DEBUG, "No URLs from urlQ.")
+            return None
+        else:
+            syslog(LOG_DEBUG, "Created a packer of length %d" % count)
+            return packer
+
+    def put(self, info):
+        """
+        Called on each FetchInfo object that comes through self.inQ.
+
+        This uses the hostbin attr of info to figure it if it belongs
+        to a local hostbin or a remote hostbin, and then sends it
+        there.
+        """
+        syslog(LOG_DEBUG, "put(%s%s)" % (info.hostkey, info.relurl))
+        if self.config.hostbins[info.hostbin] != self.id:
+            # pass it to the Server.Sender instances that the
+            # FetchServer operates:
+            self.outQ.put(info)
+        else:
+            # belongs to this FetchServer instance
+            host_data_path = os.path.join(
+                config["data_path"], info.hostbin, info.hostid, "urls_inQ")
+            urlQ = PersistentQueue(host_data_path)
+            urlQ.put(str(info))
+            urlQ.close()
+
     def make_analyzer(self):
+        """
+        Returns a subclass of Analyzer that has both self.inQ and
+        self.hostQ as instance variables, so that it can stuff data
+        into them as Analyzables come down the chain.
+
+        Called by get_analyzerchain
+        """
         class CrawlStateAnalyzer(Analyzer):
             name = "CrawlStateAnalyzer"
-            urlQ = self.urlQ
+            inQ = self.inQ
+            hosts_inQ = self.hosts_inQ
             def analyze(self, yzable):
                 if yzable.type == URLinfo_type:
                     recs = make_recs_from_URLinfo(yzable)
                     for rec in recs:
-                        self.urlQ.put(rec)
+                        self.inQ.put(rec)
                     syslog(LOG_DEBUG, "Created records for docid: " + yzable.docid)
                 elif yzable.type == HostSummary_type:
-                    #write_HostSummary(yzable, self.hosts_fh)
+                    self.hosts_inQ.put(str(yzable))
                     syslog(LOG_DEBUG, "Wrote line for hostid: " + yzable.hostkey)
                 return yzable
             def cleanup(self):
-                self.urlQ.sync()
+                self.hostQ.sync()
         return CrawlStateAnalyzer
-
-    def prepare_state(self):
-        """Sort and bin all the state files
-        """
-        syslog(LOG_DEBUG, "Preparing state.")
 
     def get_analyzerchain(self):
         """
@@ -154,7 +225,7 @@ When that method returns, the crawler can continue.
         This starts the AnalyzerChain and returns it.
         """
         try:
-            ac = AnalyzerChain()
+            ac = AnalyzerChain(debug=self.debug)
             ac.add_analyzer(1, GetLinks, 10)
             ac.add_analyzer(2, self.make_analyzer(), 1)
             ac.add_analyzer(3, SpeedDiagnostics, 1)
@@ -163,43 +234,7 @@ When that method returns, the crawler can continue.
         except Exception, exc:
             syslog(LOG_NOTICE, traceback.format_exc(exc))
 
-    def get_packer(self, max=100):
-        try:
-            packer = URL.packer()
-            count = 0
-            while count < max:
-                try:
-                    rec = self.urlQ.get_nowait()
-                except Queue.Empty:
-                    break
-                except Exception, exc:
-                    syslog(LOG_NOTICE, traceback.format_exc(exc))
-                # keep count of how many are in packer:
-                count += 1
-                parts = rec.split(DELIMITER)
-                if parts[2] == LINK:
-                    packer.add_url(parts[3])
-            if count == 0:
-                syslog(LOG_DEBUG, "No URLs from urlQ.")
-                return None
-            else:
-                syslog(LOG_DEBUG, "Created a packer of length %d" % count)
-                return packer
-        except Exception, exc:
-            syslog(LOG_NOTICE, traceback.format_exc(exc))
-
-    def send_to_other_hostbins(self):
-        # launch self.Sender to send hostbins assigned to other
-        # FetchServers
-        self.sender = self.Sender(
-            self.id,
-            self.authkey,
-            self.config["hostbins"])
-        self.sender.start()
-
-
-# global delimiter used in all state files
-DELIMITER = "|"
+# end of CrawlStateManager
 
 # This list of keys is used by both write_URLinfo and read_URLinfo so
 # that the ordering of the fields is coded in just one place.  The
@@ -213,26 +248,6 @@ content_data_keys = ["hostbin", "docid", "rec_type",
 LINK    = "0"
 FETCHED = "1"
 INLINK  = "2"
-
-def make_hostid_bin(hostkey):
-    hostid = md5(hostkey).hexdigest()
-    hostbin = "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
-    return hostid, hostbin
-
-def make_docid(hostkey, relurl):
-    docid = md5(hostkey + relurl).hexdigest()
-    return docid
-
-def make_recs_from_url(url):
-    """
-    Creates an Analyzable instance for the URL and passes it to
-    make_recs_from_URLinfo
-    """
-    hostkey, relurl = URL.get_hostkey_relurl(url)
-    hostid, out_hostbin = make_hostid_bin(hostkey)
-    out_docid = make_docid(hostkey, relurl)
-    row = DELIMITER.join([out_hostbin, out_docid, LINK, hostkey + relurl])
-    return [row]
 
 def make_recs_from_URLinfo(yzable):
     """
@@ -248,16 +263,16 @@ def make_recs_from_URLinfo(yzable):
     else:
         yzable.score = "0."
     # compute the docid for the yzable
-    yzable.docid = make_docid(yzable.hostkey, yzable.relurl)
+    yzable.docid = URL.make_docid(yzable.hostkey, yzable.relurl)
     # accumulate the outlinks
     out_docids = []
     # accumulate the list of records to output
     lines = []
     for hostkey, recs in yzable.links:
         # hostbin of the link's target host
-        out_hostid, out_hostbin = make_hostid_bin(hostkey)
+        out_hostid, out_hostbin = URL.make_hostid_bin(hostkey)
         for relurl, depth, last_modified, http_response, content_data in recs:
-            out_docid = make_docid(hostkey, relurl)
+            out_docid = URL.make_docid(hostkey, relurl)
             out_docids.append(out_docid)
             # create a row that stores just minimal info, so when we
             # sort -u, we only get one such line afterwards
@@ -272,7 +287,7 @@ def make_recs_from_URLinfo(yzable):
             lines.append(row)
     # now write content_data for this fetched doc
     yzable.link_ids = ",".join(out_docids)
-    yzable.hostid, yzable.hostbin = make_hostid_bin(yzable.hostkey)
+    yzable.hostid, yzable.hostbin = URL.make_hostid_bin(yzable.hostkey)
     if hasattr(yzable, "content_data") and yzable.content_data:
         yzable.content_data = pickle.dumps(yzable.content_data, pickle.HIGHEST_PROTOCOL)
     else:
@@ -283,17 +298,6 @@ def make_recs_from_URLinfo(yzable):
                     for param in content_data_keys])
     lines.append(row)
     return lines
-
-hostsummary_keys = ["next_time", "hostbin", "hostkey",
-                    "total_hits", "total_bytes",
-                    "start_time", "end_time"]
-
-def write_HostSummary(yzable, hostsummary_filehandle):
-    yzable.hostid, yzable.hostbin = make_hostid_bin(yzable.hostkey)
-    row = DELIMITER.join(
-        [str(operator.attrgetter(param)(yzable))
-         for param in hostsummary_keys]) + "\n"
-    hostsummary_filehandle.write(row)
 
 def get_all(data_path):
     queue = PersistentQueue(data_path)

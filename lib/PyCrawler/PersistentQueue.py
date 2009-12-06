@@ -14,18 +14,22 @@ __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 import os
 import sys
-import glob
+import copy
 import Queue
-import marshal
+import cPickle as pickle
+#import marshal
+import traceback
+import subprocess
 import multiprocessing
 from time import time, sleep
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Process import Process
+from Process import Process, multi_syslog
 
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
 
 class LineFiles:
+    DELIMITER = "|"
     def load(self, file):
         ret = []
         for line in file.readlines():
@@ -36,11 +40,21 @@ class LineFiles:
     def dump(self, lines, file):
         file.write("\n".join(lines) + "\n")
 
+    def make_record(self, line):
+        return line.split(self.DELIMITER)
+
+    def get_priority(self, line):
+        rec = self.make_record(line)
+        priority = float(rec[0])
+        return priority        
+
+class NotYet(Exception): pass
+
 class PersistentQueue:
     """
     Provides a Queue interface to a set of flat files stored on disk.
     """
-    def __init__(self, data_path, cache_size=512, marshal=LineFiles()):
+    def __init__(self, data_path, cache_size=512, marshal=pickle):
         """
         Create a persistent FIFO queue named by the 'data_path' argument.
 
@@ -51,11 +65,11 @@ class PersistentQueue:
         optional 'marshal' argument (e.g. pickle).
         """
         assert cache_size > 0, "Cache size must be larger than 0"
-        self.data_path = data_path
         self.cache_size = cache_size
         self.marshal = marshal
         self.index_file = os.path.join(data_path, INDEX_FILENAME)
-        self.temp_file = os.path.join(data_path, "tempfile")        
+        self.temp_file = os.path.join(data_path, "tempfile")
+        self.data_path = os.path.join(data_path, "data")
         self.semaphore = multiprocessing.Semaphore()
         self._init_index()
 
@@ -155,6 +169,52 @@ class PersistentQueue:
         finally:
             self.semaphore.release()
 
+    def sort(self):
+        """
+        Break the FIFO nature of the data by sorting all the records
+        on disk
+        """
+        self.semaphore.acquire()
+        try:
+            self._sync()
+            files = os.listdir(self.data_path)
+            if not files: return
+            sorted_path = "%s/../sorted" % self.data_path
+            sorted_file = open(sorted_path, "w")
+            sort = subprocess.Popen(
+                ["sort", "-u", "-"],
+                stdin=subprocess.PIPE,
+                stdout=sorted_file)
+            for chunk_name in files:
+                chunk = open(os.path.join(self.data_path, chunk_name))
+                while True:
+                    line = chunk.readline()
+                    if not line: break
+                    line = line.strip()
+                    sort.communicate(line)
+            sort.stdin.close()
+            syslog(LOG_DEBUG, "waiting for sort to finish")
+            sort.wait()
+            sorted_file.close()
+            syslog(LOG_DEBUG, "removing FIFO")
+            for chunk_name in files:
+                os.remove(os.path.join(self.data_path, chunk_name))
+            syslog(LOG_DEBUG, "re-populating FIFO")
+            sorted_file = open(sorted_path, "r")
+            for line in sorted_file.readlines():
+                line = line.strip()
+                if not line: continue
+                self.put_cache.append(line)
+                if len(self.put_cache) >= self.cache_size:
+                    self._split()
+            sorted_file.close()
+            os.remove(sorted_path)
+            syslog(LOG_DEBUG, "done re-populating FIFO")
+        except Exception, exc:
+            multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
+        finally:
+            self.semaphore.release()
+
     def sync(self):
         """
         Synchronize memory caches to disk.
@@ -171,7 +231,7 @@ class PersistentQueue:
         """
         self.semaphore.acquire()
         try:
-            self.put_cache.append(obj)
+            self.put_cache.append(copy.copy(obj))
             if len(self.put_cache) >= self.cache_size:
                 self._split()
         finally:
@@ -191,6 +251,39 @@ class PersistentQueue:
                 self._join()
                 if len(self.get_cache) > 0:
                     return self.get_cache.pop(0)
+                else:
+                    raise Queue.Empty
+        finally:
+            self.semaphore.release()
+
+    def getif(self, maxP=0):
+        """
+        Get an item from the queue with the constraint that the first
+        field (a float) is less than or equal to maxP.
+
+        Throws Empty exception if the queue is empty.
+
+        Throws NotYet exception if the queue is not empty but the next
+        record's first field is greater than maxP.
+        """
+        self.semaphore.acquire()
+        try:
+            if len(self.get_cache) > 0:
+                line = self.get_cache.pop(0)
+                if self.marshal.get_priority(line) <= maxP:
+                    return line
+                else:
+                    self.get_cache.insert(0, line)
+                    raise NotYet
+            else:
+                self._join()
+                if len(self.get_cache) > 0:
+                    linie = self.get_cache.pop(0)
+                    if self.marshal.get_priority(line) <= maxP:
+                        return line
+                    else:
+                        self.get_cache.insert(0, line)
+                        raise NotYet
                 else:
                     raise Queue.Empty
         finally:
@@ -309,7 +402,7 @@ class PersistentQueueContainer(Process):
         self.stop()
 
 def process_test(data_path, ELEMENTS):
-    pqc = PersistentQueueContainer(data_path, None, None, data_path)
+    pqc = PersistentQueueContainer(data_path, None, data_path)
     pqc.start()
     sleep(1)
     speed_test(ELEMENTS, p=pqc.queue)

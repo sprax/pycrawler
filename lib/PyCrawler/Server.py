@@ -26,8 +26,9 @@ from copy import copy
 from time import time, sleep
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Fetcher import Fetcher
-from Process import Process
-from CrawlStateManager import CrawlStateManager, make_recs_from_url
+from Process import Process, multi_syslog
+from AnalyzerChain import FetchInfo
+from CrawlStateManager import CrawlStateManager
 
 # using older than python2.6...
 import ctypes
@@ -41,10 +42,10 @@ PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"
 
 class Sender(Process):
-    def __init__(self, go, id, hostbins, authkey):
-        self.id = id
+    def __init__(self, go, inQ, id, hostbins, authkey=AUTHKEY):
         self.name = "Sender:%s" % id
         Process.__init__(self, go)
+        self.inQ = inQ
         self.hostbins = hostbins
         self.authkey = authkey
 
@@ -55,27 +56,23 @@ class Sender(Process):
         sends the data that this FetchServer has accumulated for
         that other FetchServer
         """
-        self.prepare_process()
-        syslog("Starting")
-        sys.exit()
-        for bin in self.hostbins:
-            # skip if this FetchServer owns this bin
-            if self.hostbins[bin] == self.id:
-                continue
-            fmc = FetchServerClient(self.hostbins[bin], self.authkey)
-            for rec in DB.get_records(bin):
+        syslog(LOG_DEBUG, "Starting.")
+        try:
+            self.prepare_process()
+            while self.go.is_set():
                 try:
-                    fmc.inQ.put_nowait(rec)
-                except Queue.Full:
-                    syslog("Blocking on %s" % bin)
+                    fetch_info = self.inQ.get_nowait()
+                except Queue.Empty:
                     sleep(1)
-            syslog("Done with %s" % bin)
-        syslog("All done.")
+                fmc = FetchServerClient(self.hostbins[bin], self.authkey)
+        except Exception, exc:
+            multi_syslog(traceback.format_exc(exc))
+        syslog(LOG_DEBUG, "Exiting.")
 
 class FetchServer(Process):
     class ManagerClass(multiprocessing.managers.BaseManager): pass
 
-    def __init__(self, go=None, address=("", PORT), authkey=AUTHKEY):
+    def __init__(self, go=None, address=("", PORT), authkey=AUTHKEY, debug=False):
         """
         Creates an inQ, reload Event, and relay Namespace.
 
@@ -86,6 +83,7 @@ class FetchServer(Process):
         """
         self.id = "%s:%s" % address
         self.name = "FetchServer:%s" % self.id
+        self.debug = debug
         Process.__init__(self)
         self.address = address
         self.authkey = authkey
@@ -138,11 +136,22 @@ class FetchServer(Process):
             4) wait for fetchers and sender to finish
 
         """
-        self.prepare_process()
-        self.manager = self.ManagerClass(self.address, self.authkey)
-        self.manager.start()
-        syslog(LOG_DEBUG, "Entering main loop")
         try:
+            self.prepare_process()
+            self.manager = self.ManagerClass(self.address, self.authkey)
+            self.manager.start()
+            # make a queue for passing records to sender
+            self.outQ = multiprocessing.Queue(1000)
+            # launch self.Sender to send hostbins assigned to other
+            # FetchServers
+            self.sender = Sender(
+                self.go,
+                self.outQ,
+                self.id,
+                self.config["hostbins"],
+                authkey = self.authkey)
+            self.sender.start()
+            syslog(LOG_DEBUG, "Entering main loop")
             while self.go.is_set():
                 if self.reload.is_set():
                     if self.valid_new_config():
@@ -151,14 +160,13 @@ class FetchServer(Process):
                         # csm handles disk interactions with state
                         syslog(LOG_DEBUG, "creating & starting CrawlStateManager")
                         self.csm = CrawlStateManager(
-                            self.inQ, self.relay, self.config)
+                            self.inQ, self.outQ, self.relay, self.config)
                         self.csm.start()
                     self.reload.clear()
                 if self.config is None:
                     syslog(LOG_DEBUG, "waiting for config")
                     sleep(1)
                     continue
-                self.csm.prepare_state()
                 # Get a URLs from csm, these will be selected by scoring
                 if self.relay.next_packer is None:
                     syslog(LOG_DEBUG, "Waiting for packer...")
@@ -167,17 +175,17 @@ class FetchServer(Process):
                 else:
                     packer = copy(self.relay.next_packer)
                     self.relay.next_packer = None
-                    syslog(LOG_DEBUG, "Got a packer with %d hosts" % len(packer.hosts))
+                    syslog(LOG_INFO, "Got a packer with %d hosts" % len(packer.hosts))
                 # Get an AnalyzerChain. This allows csm to record data as
                 # it streams out of fetcher.  The config could cause csm
                 # to add more Analyzers to the chain.
                 syslog(LOG_DEBUG, "Getting an AnalyzerChain")
                 ac = self.csm.get_analyzerchain()
                 syslog(LOG_DEBUG, "Creating a Fetcher")
+                # eventually could do multiple fetchers here...
                 self.fetcher = Fetcher(
                     outQ = ac.inQ,
-                    params = self.config["fetcher_options"],
-                    )
+                    params = self.config["fetcher_options"])
                 # replace fetcher's packer before starting it
                 self.fetcher.packer = packer
                 syslog("starting fetcher")
@@ -242,12 +250,11 @@ class FetchClient:
         """
         Create a new URL record and add it to this FetchServer
         """
-        recs = make_recs_from_url(url)
-        for rec in recs:
-            try:
-                self.fm.put(rec)
-            except Exception, exc:
-                syslog(LOG_NOTICE, traceback.format_exc(exc))
+        yzable = FetchInfo(url=url)
+        try:
+            self.fm.put(yzable)
+        except Exception, exc:
+            syslog(LOG_NOTICE, traceback.format_exc(exc))
 
 def default_id(hostname):
     return "%s:%s" % (hostname, PORT)
@@ -265,34 +272,37 @@ class TestHarness(Process):
     debug = True
     def run(self):
         self.prepare_process()
-        syslog("making a FetchServer")
-        fs = FetchServer()
-        fs.start()
-        fc = FetchClient()
-        syslog("calling FetchClient.set_config")
-        fc.set_config({
-                "debug": False,
-                "hostbins": {default_id(""): get_ranges(1)[0]},
-                "frac_to_fetch": 0.4,
-                "data_path": "/var/lib/pycrawler",
-                "fetcher_options": {
-                    #"SIMULATE": 3,
-                    "DOWNLOAD_TIMEOUT":  60,
-                    "FETCHER_TIMEOUT":   30000,
-                    }
-                })
-        syslog("done with FetchClient.set_config")
-        sleep(3)
-        syslog("adding url")
-        fc.add_url("http://cnn.com")
-        syslog("add_url returned")
-        #sleep(30)
-        #fc.stop()
-        #syslog("called stop on FetchClient")
-        while fs.is_alive():
-            sleep(1)
-            syslog("waiting for: " + str(multiprocessing.active_children()))
-        syslog("Test is done.")
+        try:
+            syslog("making a FetchServer")
+            fs = FetchServer(debug=True)
+            fs.start()
+            fc = FetchClient()
+            syslog("calling FetchClient.set_config")
+            fc.set_config({
+                    "debug": True,
+                    "hostbins": {default_id(""): get_ranges(1)[0]},
+                    "frac_to_fetch": 0.4,
+                    "data_path": "/var/lib/pycrawler",
+                    "fetcher_options": {
+                        #"SIMULATE": 3,
+                        "DOWNLOAD_TIMEOUT":  60,
+                        "FETCHER_TIMEOUT":   30000,
+                        }
+                    })
+            syslog("done with FetchClient.set_config")
+            sleep(3)
+            syslog("adding url")
+            fc.add_url("http://cnn.com")
+            syslog("add_url returned")
+            #sleep(30)
+            #fc.stop()
+            #syslog("called stop on FetchClient")
+            while fs.is_alive():
+                sleep(1)
+                syslog("waiting for: " + str(multiprocessing.active_children()))
+            syslog("Test is done.")
+        except Exception, exc:
+            multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
 
 if __name__ == "__main__":
     test = TestHarness()
