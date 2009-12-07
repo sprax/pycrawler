@@ -15,6 +15,7 @@ __maintainer__ = "John R. Frank"
 import os
 import sys
 import copy
+import gzip
 import Queue
 import cPickle as pickle
 #import marshal
@@ -29,7 +30,10 @@ from Process import Process, multi_syslog
 INDEX_FILENAME = "index"
 
 class LineFiles:
+    compress = True
+    sortable = True
     DELIMITER = "|"
+
     def load(self, file):
         ret = []
         for line in file.readlines():
@@ -37,11 +41,33 @@ class LineFiles:
             if line:
                 ret.append(line)
         return ret
+
+    def compare(self, x, y):
+        """
+        A function that self.dump passes into lines.sort to make the
+        on-disk files sorted.
+        """
+        x_priority = self.get_priority(x)
+        y_priority = self.get_priority(y)
+        if x_priority > y_priority:
+            return 1
+        elif x_priority == y_priority:
+            return 0
+        else: # x < y
+            return -1
+
     def dump(self, lines, file):
-        file.write("\n".join(lines) + "\n")
+        lines.sort(self.compare)
+        for line in lines:
+            if not isinstance(line, basestring):
+                line = DELIMITER.join(line)
+            file.write(line + "\n")
 
     def make_record(self, line):
-        return line.split(self.DELIMITER)
+        if isinstance(line, basestring):
+            return line.split(self.DELIMITER)
+        else:
+            return line
 
     def get_priority(self, line):
         rec = self.make_record(line)
@@ -54,7 +80,7 @@ class PersistentQueue:
     """
     Provides a Queue interface to a set of flat files stored on disk.
     """
-    def __init__(self, data_path, cache_size=512, marshal=pickle):
+    def __init__(self, data_path, cache_size=512, marshal=pickle, compress=False):
         """
         Create a persistent FIFO queue named by the 'data_path' argument.
 
@@ -72,9 +98,6 @@ class PersistentQueue:
         self.data_path = os.path.join(data_path, "data")
         self.semaphore = multiprocessing.Semaphore()
         self._init_index()
-
-        self.get_nowait = self.get
-        self.put_nowait = self.put
 
     def _init_index(self):
         if not os.path.exists(self.data_path):
@@ -100,6 +123,10 @@ class PersistentQueue:
         assert self.head < self.tail, "Head not less than tail"
 
     def _sync_index(self):
+        """
+        Fixes the data stored in the index file to match the in-memory
+        state represented by self.head and self.tail
+        """
         assert self.head < self.tail, "Head not less than tail"
         index_file = open(self.temp_file, "w")
         index_file.write("%d %d" % (self.head, self.tail))
@@ -109,14 +136,23 @@ class PersistentQueue:
         os.rename(self.temp_file, self.index_file)
 
     def _split(self):
-        put_file = os.path.join(self.data_path, str(self.tail))
+        """
+        Called whenever put_cache has grown larger than cache_size
+        """
+        # store put_cache in temp_file
         temp_file = open(self.temp_file, "wb")
         self.marshal.dump(self.put_cache, temp_file)
         temp_file.close()
+        # move the temp_file to file named by tail
+        put_file = os.path.join(self.data_path, str(self.tail))
         if os.path.exists(put_file):
             os.remove(put_file)
         os.rename(self.temp_file, put_file)
+        # update tail
         self.tail += 1
+        # keep any extra data that was in put_cache... but wait a sec:
+        # we dumped the entire put_cache to disk, so does this
+        # duplicate these rows?
         if len(self.put_cache) <= self.cache_size:
             self.put_cache = []
         else:
@@ -124,21 +160,42 @@ class PersistentQueue:
         self._sync_index()
 
     def _join(self):
+        """
+        Used by get() when the in-memory get_cache is empty.
+
+        Copes with the two possibilities:
+        
+           1) current position is tail, so no files on disk
+
+           2) exist files on disk, so load next one into get_cache
+
+        """
+        # Current cache position is one higher than head.  This is the
+        # only place this gets incremented:
         current = self.head + 1
         if current == self.tail:
+            # no files on disk, make the get_cache the put_cache
+            # (could be any length)
             self.get_cache = self.put_cache
+            # the put_cache should now be empty
             self.put_cache = []
+            # head and tail need not move
         else:
+            # load next file from disk
             get_file = open(os.path.join(self.data_path, str(current)), "rb")
             self.get_cache = self.marshal.load(get_file)
             get_file.close()
+            # remove it
             try:
                 os.remove(os.path.join(self.data_path, str(self.head)))
             except:
                 pass
+            # update head position: it moves one up (see above)
             self.head = current
+        # make sure head is always less than tail:
         if self.head == self.tail:
             self.head = self.tail - 1
+        # fix index file
         self._sync_index()
 
     def _sync(self):
@@ -174,39 +231,60 @@ class PersistentQueue:
         Break the FIFO nature of the data by sorting all the records
         on disk
         """
+        if not (hasattr(self.marshal, "sortable") and self.marshal.sortable):
+            return NotImplemented
         self.semaphore.acquire()
         try:
+            # do what close does
             self._sync()
-            files = os.listdir(self.data_path)
-            if not files: return
+            if os.path.exists(self.temp_file):
+                try:
+                    os.remove(self.temp_file)
+                except:
+                    pass
+            # remove index file, so no conflict when _init_index
+            os.remove(self.index_file)
+            # make a single file of all the sorted data
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
+            args = ["-mnu", "-"]
+            args.insert(0, "-t'%s'" % self.marshal.DELIMITER)
+            if self.compress:
+                args.insert(0, "--compress-program=gzip")
             sort = subprocess.Popen(
-                ["sort", "-u", "-"],
+                args=args,
+                executable="sort",
                 stdin=subprocess.PIPE,
                 stdout=sorted_file)
-            for chunk_name in files:
-                chunk = open(os.path.join(self.data_path, chunk_name))
+            # get all the data files
+            files = [os.path.join(self.data_path, file_name)
+                     for file_name in os.listdir(self.data_path)]
+            for file_path in files:
+                fh = open(file_path)
                 while True:
-                    line = chunk.readline()
+                    line = fh.readline()
                     if not line: break
-                    line = line.strip()
-                    sort.communicate(line)
+                    sort.stdin.write(line)
+                fh.close()
             sort.stdin.close()
             syslog(LOG_DEBUG, "waiting for sort to finish")
             sort.wait()
             sorted_file.close()
             syslog(LOG_DEBUG, "removing FIFO")
-            for chunk_name in files:
-                os.remove(os.path.join(self.data_path, chunk_name))
+            for file_name in files:
+                os.remove(file_name)
             syslog(LOG_DEBUG, "re-populating FIFO")
             sorted_file = open(sorted_path, "r")
-            for line in sorted_file.readlines():
-                line = line.strip()
-                if not line: continue
-                self.put_cache.append(line)
+            # setup the index files and prepare for put
+            self._init_index()
+            while True:
+                line = sorted_file.readline()
+                if not line: break
+                # do what self.put() does:
+                self.put_cache.append(line.strip())
                 if len(self.put_cache) >= self.cache_size:
                     self._split()
+            # clean up the sorted file
             sorted_file.close()
             os.remove(sorted_path)
             syslog(LOG_DEBUG, "done re-populating FIFO")
@@ -334,18 +412,20 @@ class PersistentQueue:
         self.semaphore.release()
             
 ## Tests
-def speed_test(data_path, ELEMENTS=50000, p=None):
+def speed_test(data_path, ELEMENTS=50000, p=None, lines=False):
     """run speed tests and average speeds of put and get"""
     if p is None:
-        p = PersistentQueue("test", 10)
-    p = PersistentQueue("test", 10)
+        if lines:
+            p = PersistentQueue(data_path, 10, LineFiles())
+        else:
+            p = PersistentQueue(data_path, 10)
     start = time()
     for a in range(ELEMENTS):
         p.put(str(a))
     p.sync()
     end = time()
     elapsed = end - start 
-    print "put --> (%d rec / %.3f sec) = %.3f rec/sec" % (ELEMENTS, elapsed, ELEMENTS/elapsed)
+    print "put() --> (%d rec / %.3f sec) = %.3f rec/sec" % (ELEMENTS, elapsed, ELEMENTS/elapsed)
     start = time()
     for a in range(ELEMENTS):
         p.get()
@@ -358,7 +438,34 @@ def speed_test(data_path, ELEMENTS=50000, p=None):
 def basic_test(data_path, ELEMENTS=1000, p=None):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue("test", 10)
+        p = PersistentQueue(data_path, 10)
+    print "Enqueueing %d items, cache size = %d" % \
+        (ELEMENTS, p.cache_size)
+    for a in range(ELEMENTS):
+        p.put(str(a))
+    p.sync()
+    assert ELEMENTS == len(p), \
+        "Put %d elements in, but lost some?" % ELEMENTS
+    print "Queue length (using __len__):", len(p)
+    print "Dequeueing %d items" % (ELEMENTS/2)
+    out = []
+    for a in range(ELEMENTS/2):
+        out.append(p.get())
+    print "Queue length (using __len__):", len(p)
+    print "Dequeueing %d items" % (ELEMENTS/2)
+    for a in range(ELEMENTS/2):
+        out.append(p.get())
+    print "Queue length (using __len__):", len(p)
+    assert out == [str(x) for x in range(ELEMENTS)], \
+        "Got out different list than put in: \n%s\n%s" % \
+        (out, range(ELEMENTS))
+    p.sync()
+    p.close()
+
+def lines_test(data_path, ELEMENTS=1000, p=None):
+    """run basic tests"""
+    if p is None:
+        p = PersistentQueue(data_path, 10, LineFiles())
     print "Enqueueing %d items, cache size = %d" % (ELEMENTS,
                                                     p.cache_size)
     for a in range(ELEMENTS):
@@ -373,6 +480,25 @@ def basic_test(data_path, ELEMENTS=1000, p=None):
     for a in range(ELEMENTS/2):
         p.get()
     print "Queue length (using __len__):", len(p)
+    p.sync()
+    p.close()
+
+def sort_test(data_path, ELEMENTS=1000, p=None):
+    """run basic tests"""
+    if p is None:
+        p = PersistentQueue(data_path, 10, LineFiles())
+    for a in range(ELEMENTS):
+        p.put(str(a))
+    p.sync()
+    p.sort()
+    previous = 0
+    for a in range(ELEMENTS):
+        now = int(p.get())
+        assert previous <= now, \
+            "wrong ordering after sort: %s !<= %s" \
+            % (previous, now)
+        previous = now        
+    print "Sorting succeeded."
     p.sync()
     p.close()
 
@@ -405,11 +531,18 @@ def process_test(data_path, ELEMENTS):
     pqc = PersistentQueueContainer(data_path, None, data_path)
     pqc.start()
     sleep(1)
-    speed_test(ELEMENTS, p=pqc.queue)
-    basic_test(ELEMENTS, p=pqc.queue)
+    speed_test(data_path, ELEMENTS, p=pqc.queue)
+    basic_test(data_path, ELEMENTS, p=pqc.queue)
     pqc.close()
 
+def rmdir(dir):
+    try:
+        shutil.rmtree(dir)
+    except Exception, exc:
+        print "Did not rmtree the dir. " + str(exc)
+
 if __name__ == "__main__":
+    import shutil
     from optparse import OptionParser
     parser = OptionParser(description="runs tests for PersistentQueue.  Default runs all tests.")
     parser.add_option("-n", "--num", dest="num", default=1000, type=int, help="num items to put/get in tests")
@@ -417,14 +550,28 @@ if __name__ == "__main__":
     parser.add_option("--basic", dest="basic", default=False, action="store_true", help="run basic test")
     parser.add_option("--speed", dest="speed", default=False, action="store_true", help="run speed test")
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
+    parser.add_option("--lines", dest="lines", default=False, action="store_true", help="run test of LineFiles")
     (options, args) = parser.parse_args()
+    rmdir(options.dir)
     if options.basic:
         basic_test(options.dir, options.num)
     elif options.speed:
         speed_test(options.dir, options.num)
     elif options.process:
         process_test(options.dir, options.num)
+    elif options.lines:
+        lines_test(options.dir, options.num)
+        rmdir(options.dir)
+        speed_test(options.dir, options.num, lines=True)
     else:
         basic_test(options.dir, options.num)
+        rmdir(options.dir)        
         speed_test(options.dir, options.num)
+        rmdir(options.dir)        
         process_test(options.dir, options.num)
+        rmdir(options.dir)
+        lines_test(options.dir, options.num)
+        rmdir(options.dir)
+        sort_test(options.dir, options.num)
+    rmdir(options.dir)
+
