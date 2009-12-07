@@ -2,8 +2,8 @@
 PersistentQueue provides a Queue interface to a set of flat files
 stored on disk.
 
-This is evolved from a recipe in the public domain created by Kjetil
-Jacobsen: http://code.activestate.com/recipes/501154/
+This is evolved (quite far) from a recipe in the public domain created
+by Kjetil Jacobsen: http://code.activestate.com/recipes/501154/
 
 """
 # $Id$
@@ -261,24 +261,42 @@ class PersistentQueue:
         finally:
             self.semaphore.release()
 
-    def sort(self, compress_temps=True):
+    def sort(self, compress_temps=False, merge_from=[]):
         """
         Break the FIFO nature of the data by sorting all the records
-        on disk
+        on disk and putting them back into the queue in sorted order.
+
+        compress_temps indicates whether to cause the sort function to
+        compress its temporary files.  This slows it down by ~20-25%
+
+        merge_from can be a list of other PersistentQueue instances,
+        which will get emptied into this sorted queue.
         """
         if not (hasattr(self.marshal, "sortable") and self.marshal.sortable):
             return NotImplemented
-        self.semaphore.acquire()
+        try:
+            # make sure that this PersistentQueue is not in merge_from list
+            merge_from.remove(self)
+        except ValueError:
+            # was not there
+            pass
+        queues = [self] + merge_from
+        for pq in queues:
+            assert pq.compress == self.compress, \
+                "All merge_from queues must have same compress flag as this queue"
+        for pq in queues:
+            pq.semaphore.acquire()
         try:
             # do what close does
-            self._sync()
-            if os.path.exists(self.temp_file):
-                try:
-                    os.remove(self.temp_file)
-                except:
-                    pass
-            # remove index file, so no conflict when _init_index
-            os.remove(self.index_file)
+            for pq in queues:
+                pq._sync()
+                if os.path.exists(pq.temp_file):
+                    try:
+                        os.remove(pq.temp_file)
+                    except:
+                        pass
+                # remove index file, so no conflict when _init_index
+                os.remove(pq.index_file)
             # make a single file of all the sorted data
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
@@ -289,8 +307,10 @@ class PersistentQueue:
             if compress_temps:
                 args.append("--compress-program=gzip")
             # setup the list of file paths
-            files = [os.path.join(self.data_path, file_name)
-                     for file_name in os.listdir(self.data_path)]
+            files = []
+            for pq in queues:
+                files += [os.path.join(pq.data_path, file_name)
+                          for file_name in os.listdir(pq.data_path)]
             if self.compress:
                 # If we are compressing, then we must load all the
                 # files here and push them over stdin, which loses
@@ -326,7 +346,8 @@ class PersistentQueue:
                 os.remove(file_name)
             syslog(LOG_DEBUG, "re-populating FIFO")
             # setup the index files and prepare for put
-            self._init_index()
+            for pq in queues:
+                pq._init_index()
             # read in sorted_file and put into newly initialized queue
             sorted_file = open(sorted_path, "r")
             while True:
@@ -338,12 +359,13 @@ class PersistentQueue:
                     self._split()
             # clean up the sorted file
             sorted_file.close()
-            #os.remove(sorted_path)
+            os.remove(sorted_path)
             syslog(LOG_DEBUG, "done re-populating FIFO")
         except Exception, exc:
             multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
         finally:
-            self.semaphore.release()
+            for pq in queues:
+                pq.semaphore.release()
 
     def sync(self):
         """
@@ -540,7 +562,7 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=True, compress_temps=Tr
     print "Running test on sorting with %d elements" % ELEMENTS
     import random
     if p is None:
-        p = PersistentQueue(data_path, 10, LineFiles(), compress=compress)
+        p = PersistentQueue(data_path, 10, LineFiles(), compress=compress)        
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -571,6 +593,54 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=True, compress_temps=Tr
     print "Sorting succeeded.  Sort took %s seconds, %.2f records/second" \
         % (elapsed, rate)
     p.close()
+
+def merge_test(data_path, ELEMENTS=1000):
+    """run sort tests"""
+    num_queues = 4
+    print "Running test on merging with %d elements from %d queues" \
+        % (ELEMENTS, num_queues)
+    import random
+    p = PersistentQueue(data_path, 10, LineFiles())
+    queues = [p]
+    for i in range(num_queues - 1):
+        queues.append(
+            PersistentQueue(data_path + "/%d" % i, 10, LineFiles()))
+    # define an answer
+    answer = range(ELEMENTS)
+    # randomize it before putting into queue
+    randomized = []
+    for i in range(len(answer)):
+        element = random.choice(answer)
+        answer.remove(element)
+        randomized.append(element)
+    # put it in the queue
+    for a in randomized:
+        # pick a queue at random
+        pq = queues[int(random.random() * len(queues))]
+        pq.put(str(a))
+    # sync but do not close
+    for pq in queues:
+        pq.sync()
+    # this could take time
+    start = time()
+    p.sort(merge_from=queues)
+    end = time()
+    elapsed = end - start
+    rate = elapsed and (ELEMENTS / elapsed) or 0.0
+    # get the response and compare with answer
+    answer = range(ELEMENTS)
+    vals = []
+    for a in range(len(answer)):
+        vals.append(int(p.get()))
+    assert vals == answer, "Wrongly sorted result:\n%s" % vals
+    for i in range(len(vals)-1):
+        assert vals[i] <= vals[i+1], "Wrongly sorted result:\n%s" % vals
+    print "Sorting succeeded.  Sort took %s seconds, %.2f records/second" \
+        % (elapsed, rate)
+    p.close()
+    for pq in queues:
+        assert len(pq) == 0, "Should not have any items left in merge_from queues"
+        pq.close()
 
 class PersistentQueueContainer(Process):
     def __init__(self, id, go, data_path):
@@ -623,6 +693,7 @@ if __name__ == "__main__":
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
     parser.add_option("--lines", dest="lines", default=False, action="store_true", help="run test of LineFiles")
     parser.add_option("--sort", dest="sort", default=False, action="store_true", help="run test of sorting")
+    parser.add_option("--merge", dest="merge", default=False, action="store_true", help="run test of sorted merging of multiple queues")
     parser.add_option("--keep", dest="keep", default=False, action="store_true", help="keep the data dir after the test")
     (options, args) = parser.parse_args()
     rmdir(options.dir)
@@ -641,6 +712,8 @@ if __name__ == "__main__":
         sort_test(options.dir, options.num, compress=False, compress_temps=True)
         sort_test(options.dir, options.num, compress=True, compress_temps=False)
         sort_test(options.dir, options.num, compress=True, compress_temps=True)
+    elif options.merge:
+        merge_test(options.dir, options.num)
     else:
         basic_test(options.dir, options.num)
         rmdir(options.dir)        
@@ -651,6 +724,8 @@ if __name__ == "__main__":
         lines_test(options.dir, options.num)
         rmdir(options.dir)
         sort_test(options.dir, options.num)
+        rmdir(options.dir)
+        merge_test(options.dir, options.num)
 
     if not options.keep:
         rmdir(options.dir)
