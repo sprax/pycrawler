@@ -30,8 +30,8 @@ from Process import Process, multi_syslog
 INDEX_FILENAME = "index"
 
 class LineFiles:
-    compress = True
     sortable = True
+    priority_field = 1
     DELIMITER = "|"
 
     def load(self, file):
@@ -71,7 +71,7 @@ class LineFiles:
 
     def get_priority(self, line):
         rec = self.make_record(line)
-        priority = float(rec[0])
+        priority = float(rec[self.priority_field - 1])
         return priority        
 
 class NotYet(Exception): pass
@@ -93,6 +93,7 @@ class PersistentQueue:
         assert cache_size > 0, "Cache size must be larger than 0"
         self.cache_size = cache_size
         self.marshal = marshal
+        self.compress = compress
         self.index_file = os.path.join(data_path, INDEX_FILENAME)
         self.temp_file = os.path.join(data_path, "tempfile")
         self.data_path = os.path.join(data_path, "data")
@@ -100,24 +101,41 @@ class PersistentQueue:
         self._init_index()
 
     def _init_index(self):
+        """
+        Reconstruct index_file and in-memory caches from data on disk
+        """
         if not os.path.exists(self.data_path):
             os.makedirs(self.data_path)
+        # if the index is there, use it
         if os.path.exists(self.index_file):
             index_file = open(self.index_file)
             self.head, self.tail = map(lambda x: int(x),
                                        index_file.read().split(" "))
             index_file.close()
         else:
+            # otherwise, start from scratch
             self.head, self.tail = 0, 1
-        def _load_cache(cache, num):
+        # now setup in-memory caches
+        def _load_cache(cache_name, num):
+            """
+            If a cache file exists on disk, load it, otherwise set the
+            attr to empty list.
+            """
             data_path = os.path.join(self.data_path, str(num))
-            mode = "rb+" if os.path.exists(data_path) else "wb+"
-            cachefile = open(data_path, mode)
-            try:
-                setattr(self, cache, self.marshal.load(cachefile))
-            except EOFError:
-                setattr(self, cache, [])
-            cachefile.close()
+            if not os.path.exists(data_path):
+                setattr(self, cache_name, [])
+            else:
+                mode = "rb+"
+                cachefile = open(data_path, mode)
+                if self.compress:
+                    cachefile = gzip.GzipFile(
+                        mode = mode,  fileobj = cachefile, compresslevel = 9)
+                try:
+                    setattr(self, cache_name, self.marshal.load(cachefile))
+                except EOFError:
+                    setattr(self, cache_name, [])
+                cachefile.close()
+        # now use the function to set the two caches
         _load_cache("put_cache", self.tail)
         _load_cache("get_cache", self.head)
         assert self.head < self.tail, "Head not less than tail"
@@ -139,8 +157,13 @@ class PersistentQueue:
         """
         Called whenever put_cache has grown larger than cache_size
         """
+        assert len(self.put_cache) == self.cache_size, \
+            "Too late: _split called after put_cache is *larger* than cache_size"
         # store put_cache in temp_file
         temp_file = open(self.temp_file, "wb")
+        if self.compress:
+            temp_file = gzip.GzipFile(
+                mode = "wb",  fileobj = temp_file, compresslevel = 9)
         self.marshal.dump(self.put_cache, temp_file)
         temp_file.close()
         # move the temp_file to file named by tail
@@ -148,15 +171,10 @@ class PersistentQueue:
         if os.path.exists(put_file):
             os.remove(put_file)
         os.rename(self.temp_file, put_file)
-        # update tail
+        # update tail, which means we must update in-memory cache
         self.tail += 1
-        # keep any extra data that was in put_cache... but wait a sec:
-        # we dumped the entire put_cache to disk, so does this
-        # duplicate these rows?
-        if len(self.put_cache) <= self.cache_size:
-            self.put_cache = []
-        else:
-            self.put_cache = self.put_cache[:self.cache_size]
+        # put_cache is now safely on disk, so in-memory is empty:
+        self.put_cache = []
         self._sync_index()
 
     def _join(self):
@@ -183,6 +201,9 @@ class PersistentQueue:
         else:
             # load next file from disk
             get_file = open(os.path.join(self.data_path, str(current)), "rb")
+            if self.compress:
+                get_file = gzip.GzipFile(
+                    mode = "rb",  fileobj = get_file, compresslevel = 9)
             self.get_cache = self.marshal.load(get_file)
             get_file.close()
             # remove it
@@ -199,21 +220,35 @@ class PersistentQueue:
         self._sync_index()
 
     def _sync(self):
+        """
+        Put the contents of both get_cache and put_cache on disk, so
+        the in-memory caches are empty.
+        """
         self._sync_index()
+        # flush the get_cache to disk
         get_file = os.path.join(self.data_path, str(self.head))
         temp_file = open(self.temp_file, "wb")
+        if self.compress:
+            temp_file = gzip.GzipFile(
+                mode = "wb",  fileobj = temp_file, compresslevel = 9)
         self.marshal.dump(self.get_cache, temp_file)
         temp_file.close()
         if os.path.exists(get_file):
             os.remove(get_file)
         os.rename(self.temp_file, get_file)
+        # flush the put_cache to disk
         put_file = os.path.join(self.data_path, str(self.tail))
         temp_file = open(self.temp_file, "wb")
+        if self.compress:
+            temp_file = gzip.GzipFile(
+                mode = "wb",  fileobj = temp_file, compresslevel = 9)
         self.marshal.dump(self.put_cache, temp_file)
         temp_file.close()
         if os.path.exists(put_file):
             os.remove(put_file)
         os.rename(self.temp_file, put_file)
+        # as long as we do not change head or tail values, we can
+        # leave the in-memory cache unchanged.
 
     def __len__(self):
         """
@@ -226,7 +261,7 @@ class PersistentQueue:
         finally:
             self.semaphore.release()
 
-    def sort(self):
+    def sort(self, compress_temps=True):
         """
         Break the FIFO nature of the data by sorting all the records
         on disk
@@ -247,36 +282,53 @@ class PersistentQueue:
             # make a single file of all the sorted data
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
-            args = ["-mnu", "-"]
-            args.insert(0, "-t'%s'" % self.marshal.DELIMITER)
-            if self.compress:
-                args.insert(0, "--compress-program=gzip")
-            sort = subprocess.Popen(
-                args=args,
-                executable="sort",
-                stdin=subprocess.PIPE,
-                stdout=sorted_file)
-            # get all the data files
+            args = ["sort", "-nu"]
+            args.append("-k%d,%d" % ((self.marshal.priority_field), 
+                                        self.marshal.priority_field+1))
+            args.append("-t%s" % self.marshal.DELIMITER)
+            if compress_temps:
+                args.append("--compress-program=gzip")
+            # setup the list of file paths
             files = [os.path.join(self.data_path, file_name)
                      for file_name in os.listdir(self.data_path)]
-            for file_path in files:
-                fh = open(file_path)
-                while True:
-                    line = fh.readline()
-                    if not line: break
-                    sort.stdin.write(line)
-                fh.close()
-            sort.stdin.close()
-            syslog(LOG_DEBUG, "waiting for sort to finish")
+            if self.compress:
+                # If we are compressing, then we must load all the
+                # files here and push them over stdin, which loses
+                # benefit of having sorted them when writing.
+                sort = subprocess.Popen(
+                    args=args,
+                    stdin=subprocess.PIPE,
+                    stdout=sorted_file)
+                for file_path in files:
+                    fh = open(file_path)
+                    fh = gzip.GzipFile(
+                        mode = "r",  fileobj = fh, compresslevel = 9)
+                    while True:
+                        line = fh.readline()
+                        if not line: break
+                        sort.stdin.write(line)
+                    fh.close()
+                sort.stdin.close()
+            else:
+                # If not compressing, just pass file names as args.
+                # The -m means that sort can simply merge without
+                # sorting, because we wrote them as sorted lists.
+                args.append("-m")
+                args += files
+                sort = subprocess.Popen(
+                    args=args,
+                    stdout=sorted_file)
+            syslog(LOG_DEBUG, "waiting for sort to finish, sort_file is open")
             sort.wait()
             sorted_file.close()
             syslog(LOG_DEBUG, "removing FIFO")
             for file_name in files:
                 os.remove(file_name)
             syslog(LOG_DEBUG, "re-populating FIFO")
-            sorted_file = open(sorted_path, "r")
             # setup the index files and prepare for put
             self._init_index()
+            # read in sorted_file and put into newly initialized queue
+            sorted_file = open(sorted_path, "r")
             while True:
                 line = sorted_file.readline()
                 if not line: break
@@ -286,7 +338,7 @@ class PersistentQueue:
                     self._split()
             # clean up the sorted file
             sorted_file.close()
-            os.remove(sorted_path)
+            #os.remove(sorted_path)
             syslog(LOG_DEBUG, "done re-populating FIFO")
         except Exception, exc:
             multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
@@ -412,13 +464,13 @@ class PersistentQueue:
         self.semaphore.release()
             
 ## Tests
-def speed_test(data_path, ELEMENTS=50000, p=None, lines=False):
+def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
     """run speed tests and average speeds of put and get"""
     if p is None:
         if lines:
-            p = PersistentQueue(data_path, 10, LineFiles())
+            p = PersistentQueue(data_path, 10, LineFiles(), compress=compress)
         else:
-            p = PersistentQueue(data_path, 10)
+            p = PersistentQueue(data_path, 10, compress=compress)
     start = time()
     for a in range(ELEMENTS):
         p.put(str(a))
@@ -435,10 +487,10 @@ def speed_test(data_path, ELEMENTS=50000, p=None, lines=False):
     p.sync()
     p.close()
 
-def basic_test(data_path, ELEMENTS=1000, p=None):
+def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue(data_path, 10)
+        p = PersistentQueue(data_path, 10, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
         (ELEMENTS, p.cache_size)
     for a in range(ELEMENTS):
@@ -462,12 +514,12 @@ def basic_test(data_path, ELEMENTS=1000, p=None):
     p.sync()
     p.close()
 
-def lines_test(data_path, ELEMENTS=1000, p=None):
+def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue(data_path, 10, LineFiles())
-    print "Enqueueing %d items, cache size = %d" % (ELEMENTS,
-                                                    p.cache_size)
+        p = PersistentQueue(data_path, 10, LineFiles(), compress=compress)
+    print "Enqueueing %d items, cache size = %d" % \
+        (ELEMENTS, p.cache_size)
     for a in range(ELEMENTS):
         p.put(str(a))
     p.sync()
@@ -483,23 +535,41 @@ def lines_test(data_path, ELEMENTS=1000, p=None):
     p.sync()
     p.close()
 
-def sort_test(data_path, ELEMENTS=1000, p=None):
-    """run basic tests"""
+def sort_test(data_path, ELEMENTS=1000, p=None, compress=True, compress_temps=True):
+    """run sort tests"""
+    print "Running test on sorting with %d elements" % ELEMENTS
+    import random
     if p is None:
-        p = PersistentQueue(data_path, 10, LineFiles())
-    for a in range(ELEMENTS):
+        p = PersistentQueue(data_path, 10, LineFiles(), compress=compress)
+    # define an answer
+    answer = range(ELEMENTS)
+    # randomize it before putting into queue
+    randomized = []
+    for i in range(len(answer)):
+        element = random.choice(answer)
+        answer.remove(element)
+        randomized.append(element)
+    # put it in the queue
+    for a in randomized:
         p.put(str(a))
+    # sync but do not close
     p.sync()
-    p.sort()
-    previous = 0
-    for a in range(ELEMENTS):
-        now = int(p.get())
-        assert previous <= now, \
-            "wrong ordering after sort: %s !<= %s" \
-            % (previous, now)
-        previous = now        
-    print "Sorting succeeded."
-    p.sync()
+    # this could take time
+    start = time()
+    p.sort(compress_temps)
+    end = time()
+    elapsed = end - start
+    rate = elapsed and (ELEMENTS / elapsed) or 0.0
+    # get the response and compare with answer
+    answer = range(ELEMENTS)
+    vals = []
+    for a in range(len(answer)):
+        vals.append(int(p.get()))
+    assert vals == answer, "Wrongly sorted result:\n%s" % vals
+    for i in range(len(vals)-1):
+        assert vals[i] <= vals[i+1], "Wrongly sorted result:\n%s" % vals
+    print "Sorting succeeded.  Sort took %s seconds, %.2f records/second" \
+        % (elapsed, rate)
     p.close()
 
 class PersistentQueueContainer(Process):
@@ -518,7 +588,7 @@ class PersistentQueueContainer(Process):
         """
         """
         syslog("Starting")
-        self.queue = PersistentQueue(self.data_path)
+        self.queue = PersistentQueue(self.data_path, compress=True)
         while self.go.is_set() and self._go.is_set():
             sleep(1)
         syslog("syncing before closing")
@@ -536,10 +606,11 @@ def process_test(data_path, ELEMENTS):
     pqc.close()
 
 def rmdir(dir):
-    try:
-        shutil.rmtree(dir)
-    except Exception, exc:
-        print "Did not rmtree the dir. " + str(exc)
+    if os.path.exists(dir):
+        try:
+            shutil.rmtree(dir)
+        except Exception, exc:
+            print "Did not rmtree the dir. " + str(exc)
 
 if __name__ == "__main__":
     import shutil
@@ -551,6 +622,8 @@ if __name__ == "__main__":
     parser.add_option("--speed", dest="speed", default=False, action="store_true", help="run speed test")
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
     parser.add_option("--lines", dest="lines", default=False, action="store_true", help="run test of LineFiles")
+    parser.add_option("--sort", dest="sort", default=False, action="store_true", help="run test of sorting")
+    parser.add_option("--keep", dest="keep", default=False, action="store_true", help="keep the data dir after the test")
     (options, args) = parser.parse_args()
     rmdir(options.dir)
     if options.basic:
@@ -563,6 +636,11 @@ if __name__ == "__main__":
         lines_test(options.dir, options.num)
         rmdir(options.dir)
         speed_test(options.dir, options.num, lines=True)
+    elif options.sort:
+        sort_test(options.dir, options.num, compress=False, compress_temps=False)
+        sort_test(options.dir, options.num, compress=False, compress_temps=True)
+        sort_test(options.dir, options.num, compress=True, compress_temps=False)
+        sort_test(options.dir, options.num, compress=True, compress_temps=True)
     else:
         basic_test(options.dir, options.num)
         rmdir(options.dir)        
@@ -573,5 +651,7 @@ if __name__ == "__main__":
         lines_test(options.dir, options.num)
         rmdir(options.dir)
         sort_test(options.dir, options.num)
-    rmdir(options.dir)
+
+    if not options.keep:
+        rmdir(options.dir)
 
