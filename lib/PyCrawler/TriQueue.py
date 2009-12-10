@@ -34,11 +34,14 @@ import multiprocessing
 from time import time, sleep
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
-from PersistentQueue import PersistentQueue
+from PersistentQueue import PersistentQueue, LineFiles
 
 class Syncing(Exception): pass
+class Blocked(Exception): pass
 
 class TriQueue:
+    debug = True
+
     def __init__(self, data_path):
         self.data_path = data_path
         self.inQ_path = os.path.join(data_path, "inQ")
@@ -48,38 +51,61 @@ class TriQueue:
 
         self.semaphore = multiprocessing.Semaphore()
         self.sync_pending = multiprocessing.Semaphore()
-        self.syncing = False
 
     def open_queues(self):
-        self.inQ = PersistentQueue(self.inQ_path)
-        self.readyQ = PersistentQueue(self.readyQ_path)
-        self.pendingQ = PersistentQueue(self.pendingQ_path)
+        """
+        Open the three queues
+        """
+        self.inQ = PersistentQueue(self.inQ_path, marshal=LineFiles())
+        self.readyQ = PersistentQueue(self.readyQ_path, marshal=LineFiles())
+        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=LineFiles())
 
-    def put(self, data):
-        self.semaphore.acquire()
+    def close(self):
+        """
+        Close all three queues that we have openned.
+        """
+        self.inQ.close()
+        self.readyQ.close()
+        self.pendingQ.close()
+
+    def put(self, data, block=True):
+        acquired = self.semaphore.acquire(block=False)
+        if not acquired:
+            raise Blocked
         self.inQ.put(data)
         self.semaphore.release()
 
-    def get(self):
+    def put_nowait(self, data):
+        return self.put(data, block=False)
+
+    def get(self, block=True):
         """
         Get a data item from the readyQ and store a copy in pendingQ
 
         If readyQ is Empty, but we are syncing, then raise Syncing
         instead of Queue.Empty.
         """
-        self.semaphore.acquire()
+        acquired = self.semaphore.acquire(block=False)
+        if not acquired:
+            self.semaphore.release()
+            raise Blocked
         try:
             data = self.readyQ.get()
+            self.pendingQ.put(data)
+            return data
         except Queue.Empty:
-            if self.syncing:
+            if self.sync_pending.get_value() is 0:
                 raise Syncing
             else:
+                self.readyQ.make_singleprocess_safe()
                 raise Queue.Empty
-        self.pendingQ.put(data)
-        self.semaphore.release()
-        return data
+        finally:
+            self.semaphore.release()
 
-    def sync(self):
+    def get_nowait(self):
+        return self.get(block=False)
+
+    def sync(self, block=False):
         """
         First, move the three queues out of the way and setup new
         (empty) queues to continue handling gets and puts.
@@ -87,12 +113,14 @@ class TriQueue:
         Then, merge all data from the existing three queues and put
         the result into the new readyQ.
         """
-        self.semaphore.acquire()
-        self.syncing = self.sync_pending.acquire(block=False)
-        if not self.syncing:
-            # there is a sync running, so return False
+        acquired = self.semaphore.acquire(block)
+        if not acquired:
+            raise Blocked
+        acquired = self.sync_pending.acquire(block=False)
+        if not acquired:
+            # sync is already running
             self.semaphore.release()
-            return False
+            raise Syncing
         # release sync_pending so Merger child process can acquire it.
         # This is inside the semaphore.acquire, so no other process
         # can get confused about whether we're syncing.
@@ -109,7 +137,8 @@ class TriQueue:
         shutil.move(self.readyQ_path, readyQ_syncing)
         shutil.move(self.pendingQ_path, pendingQ_syncing)
         self.open_queues()
-        
+        self.readyQ.make_multiprocess_safe()
+
         # while still holding the semaphore, we launch a process to
         # sort and merge all the files.  The child process acquires
         # the sync_pending semaphore, which we checked above.
@@ -118,73 +147,46 @@ class TriQueue:
             sync_pending = self.sync_pending
             accumulator = self.accumulator
             readyQ = self.readyQ
-            field_begin = "+1"
-            field_end   = "-2"
-
+            debug = self.debug
             def run(self):
-                """
-                """
+                "waits for merge to complete"
                 try:
                     self.prepare_process()
                     self.sync_pending.acquire()
-                    sort = subprocess.Popen(
-                        ["sort", "-u", "-"],
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE)
-                    # get list of all individual cache files:
-                    files = []
-                    for path in self.paths:
-                        for file_path in os.listdir(os.path.join(path, "data")):
-                            files.append(os.path.join(path, "data", file_path))
-                    syslog("sort process says: " + str(sort.poll()))
-                    for file_path in files:
-                        chunk = open(file_path)
-                        while True:
-                            line = chunk.readline()
-                            if not line: break
-                            line = line.strip()
-                            try:
-                                sort.communicate(line)
-                            except Exception, exc:
-                                syslog(LOG_NOTICE, "sort broke before terminating: " + sort.stderr.read())
-                    sort.stdin.close()
-                    previous = None
-                    while True:
-                        line = sort.stdout.readline()
-                        if not line: break
-                        # Iterate accumulator until it finds the next
-                        # row.  It modifies previous as it iterates
-                        # through a group of records that need to be
-                        # merged.
-                        next, previous = self.accumulator(line, previous)
-                        if next is not None:
-                            self.readyQ.put(previous)
-                            previous = next
-                    if sort.returncode is not None:
-                        syslog(LOG_NOTICE, "sort broke before terminating: " + sort.stderr.read())
-                        sort.kill()
+                    pq = PersistentQueue(self.paths[0], marshal=LineFiles())
+                    queues = [PersistentQueue(self.paths[1], marshal=LineFiles()),
+                              PersistentQueue(self.paths[2], marshal=LineFiles())]
+                    failure = True
+                    try:
+                        retval = pq.sort(merge_from=queues, merge_to=self.readyQ)
+                        assert retval is True, \
+                            "Should get True from sort, instead: " + str(retval)
+                        pq.close()
+                        failure = False
+                    except Exception, exc:
+                        syslog(traceback.format_exc(exc))
+                    if failure:
+                        syslog(LOG_NOTICE, "Failed merge of " + str(self.paths))
                     else:
                         for path in self.paths:
                             try:
                                 shutil.rmtree(path)
                             except Exception, exc:
                                 multi_syslog(traceback.format_exc(exc))
-                    syslog(LOG_NOTICE, "Completed merge of " + str(self.paths))
                     self.sync_pending.release()
                 except Exception, exc:
                     multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
         # end of Merger definition
         merger = Merger()
         merger.start()
-        # loop until the child process acquired its semaphore
-        while True:
-            got_lock = self.sync_pending.acquire(block=False)
-            if got_lock:
+        # loop until the child process acquires its semaphore
+        while merger.is_alive():
+            acquired = self.sync_pending.acquire(block=False)
+            if not acquired:
+                break
+            else:
                 self.sync_pending.release()
                 sleep(0.1)
-            else:
-                break
         # now release main semaphore and get back to normal operation
         self.semaphore.release()
         return merger
@@ -203,23 +205,3 @@ class TriQueue:
         else:
             # keep the first one that had a distinct third part
             return None, previous
-        
-
-if __name__ == "__main__":
-    import random
-    test_path = "/tmp/test"
-    if os.path.exists(test_path):
-        shutil.rmtree(test_path)
-    tq = TriQueue(test_path)
-    for i in range(1000):
-        v = str(random.random())
-        tq.put(v)
-    tq.sync()
-    i = 0
-    while i < 500:
-        try:
-            tq.get()
-            i += 1
-        except Queue.Empty:
-            sleep(1)
-    tq.sync()
