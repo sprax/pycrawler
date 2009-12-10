@@ -19,7 +19,7 @@ version of it back into the inQ or has crashed such that we never
 expect to get one.
 
 """
-# $Id: $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
