@@ -36,6 +36,7 @@ from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 from PersistentQueue import PersistentQueue, LineFiles
 
+class ReadyToSync(Exception): pass
 class Syncing(Exception): pass
 class Blocked(Exception): pass
 
@@ -78,19 +79,20 @@ class TriQueue:
     def put_nowait(self, data):
         return self.put(data, block=False)
 
-    def get(self, block=True):
+    def get(self, block=True, maxP=None):
         """
         Get a data item from the readyQ and store a copy in pendingQ
 
         If readyQ is Empty, but we are syncing, then raise Syncing
         instead of Queue.Empty.
+
+        If maxP is a float, then readyQ might raise NotYet
         """
-        acquired = self.semaphore.acquire(block=False)
+        acquired = self.semaphore.acquire(block=block)
         if not acquired:
-            self.semaphore.release()
             raise Blocked
         try:
-            data = self.readyQ.get()
+            data = self.readyQ.get(maxP=maxP)
             self.pendingQ.put(data)
             return data
         except Queue.Empty:
@@ -98,6 +100,9 @@ class TriQueue:
                 raise Syncing
             else:
                 self.readyQ.make_singleprocess_safe()
+            if (len(self.inQ) + len(self.pendingQ)) > 0:
+                raise ReadyToSync
+            else:
                 raise Queue.Empty
         finally:
             self.semaphore.release()
@@ -190,6 +195,28 @@ class TriQueue:
         # now release main semaphore and get back to normal operation
         self.semaphore.release()
         return merger
+
+    def sync_and_close(self):
+        """
+        Starts a child process that syncs this TriQueue and then
+        closes it.
+        """
+        class SyncAndClose(Process):
+            debug = True
+            name = "SyncAndClose: %s" % self.data_path
+            TriQueue = self
+            def run(self):
+                try:
+                    self.prepare_process()
+                    self.TriQueue.sync()
+                    while self.sync_pending.get_value() is 0:
+                        sleep(2)
+                    self.TriQueue.close()
+                    syslog(LOG_DEBUG, "Done syncing and closing")
+                except Exception, exc:
+                    multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
+        sac = SyncAndClose()
+        sac.start()
 
     def accumulator(self, line, previous):
         """

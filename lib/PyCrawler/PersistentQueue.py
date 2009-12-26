@@ -29,51 +29,6 @@ from Process import Process, multi_syslog
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
 
-class LineFiles:
-    sortable = True
-    priority_field = 1
-    DELIMITER = "|"
-
-    def load(self, file):
-        ret = []
-        for line in file.readlines():
-            line = line.strip()
-            if line:
-                ret.append(line)
-        return ret
-
-    def compare(self, x, y):
-        """
-        A function that self.dump passes into lines.sort to make the
-        on-disk files sorted.
-        """
-        x_priority = self.get_priority(x)
-        y_priority = self.get_priority(y)
-        if x_priority > y_priority:
-            return 1
-        elif x_priority == y_priority:
-            return 0
-        else: # x < y
-            return -1
-
-    def dump(self, lines, file):
-        lines.sort(self.compare)
-        for line in lines:
-            if not isinstance(line, basestring):
-                line = DELIMITER.join(line)
-            file.write(line + "\n")
-
-    def make_record(self, line):
-        if isinstance(line, basestring):
-            return line.split(self.DELIMITER)
-        else:
-            return line
-
-    def get_priority(self, line):
-        rec = self.make_record(line)
-        priority = float(rec[self.priority_field - 1])
-        return priority        
-
 class NotYet(Exception): pass
 
 class PersistentQueue:
@@ -405,59 +360,40 @@ class PersistentQueue:
                 self._close()
             self.semaphore.release()
 
-    def get(self):
+    def get(self, maxP=None):
         """
-        Get an item from the queue.
-        Throws Empty exception if the queue is empty.
+        Get an item from the queue with the (optional) constraint that
+        the priority field (a float) is less than or equal to maxP.
+        The marshal tool must provide a get_priority method.
+
+        Throws Queue.Empty exception if the queue is empty.
+
+        Throws NotYet exception if the queue is not empty but the next
+        record's priority is greater than maxP.
         """
         self.semaphore.acquire()
         try:
             if self._multiprocessing:
+                # load caches from disk
                 self._open()
-            if len(self.get_cache) > 0:
-                return self.get_cache.pop(0)
-            else:
+            if len(self.get_cache) == 0:
+                # load next cache file
                 self._join()
-                if len(self.get_cache) > 0:
-                    return self.get_cache.pop(0)
-                else:
-                    raise Queue.Empty
+            # in-memory cache is fresh, so if empty:
+            if len(self.get_cache) == 0:
+                raise Queue.Empty
+            # not empty, so consider next record
+            line = self.get_cache.pop(0)
+            if maxP is None or \
+                    self.marshal.get_priority(line) <= maxP:
+                return line
+            else:
+                # rejecting it because of maxP priority
+                self.get_cache.insert(0, line)
+                raise NotYet
         finally:
             if self._multiprocessing:
                 self._close()
-            self.semaphore.release()
-
-    def getif(self, maxP=0):
-        """
-        Get an item from the queue with the constraint that the first
-        field (a float) is less than or equal to maxP.
-
-        Throws Empty exception if the queue is empty.
-
-        Throws NotYet exception if the queue is not empty but the next
-        record's first field is greater than maxP.
-        """
-        self.semaphore.acquire()
-        try:
-            if len(self.get_cache) > 0:
-                line = self.get_cache.pop(0)
-                if self.marshal.get_priority(line) <= maxP:
-                    return line
-                else:
-                    self.get_cache.insert(0, line)
-                    raise NotYet
-            else:
-                self._join()
-                if len(self.get_cache) > 0:
-                    linie = self.get_cache.pop(0)
-                    if self.marshal.get_priority(line) <= maxP:
-                        return line
-                    else:
-                        self.get_cache.insert(0, line)
-                        raise NotYet
-                else:
-                    raise Queue.Empty
-        finally:
             self.semaphore.release()
 
     def make_multiprocess_safe(self):
