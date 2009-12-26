@@ -9,12 +9,13 @@ __version__ = "0.1"
 
 import os
 import sys
+import Queue
 import traceback
 sys.path.append(os.path.join(os.getcwd(), "lib/PyCrawler"))
 
 try:
     from Process import Process
-    from TriQueue import TriQueue
+    from TriQueue import TriQueue, Blocked, Syncing
     from PersistentQueue import LineFiles, PersistentQueue
 except Exception, exc:
     msg = "Failed to import PyCrawler.\n"
