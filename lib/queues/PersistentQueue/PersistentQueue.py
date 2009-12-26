@@ -1,6 +1,6 @@
 """
-PersistentQueue provides a Queue interface to a set of flat files
-stored on disk.
+PersistentQueue.Queue provides a queue interface to a set of flat
+files stored on disk.
 
 This is evolved (quite far) from a recipe in the public domain created
 by Kjetil Jacobsen: http://code.activestate.com/recipes/501154/
@@ -24,7 +24,6 @@ import subprocess
 import multiprocessing
 from time import time, sleep
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Process import Process, multi_syslog
 
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
@@ -232,7 +231,7 @@ class PersistentQueue:
         which to put all records (instead of into this queue).
 
         """
-        if not (hasattr(self.marshal, "sortable") and self.marshal.sortable):
+        if not (hasattr(self.marshal, "SORTABLE") and self.marshal.SORTABLE):
             return NotImplemented
         try:
             # make sure that this PersistentQueue is not in merge_from list
@@ -261,8 +260,10 @@ class PersistentQueue:
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
             args = ["sort", "-nu"]
-            args.append("-k%d,%d" % ((self.marshal.priority_field), 
-                                        self.marshal.priority_field+1))
+            args.append(
+                "-k%d,%d" % (
+                    self.marshal.SORT_FIELD, 
+                    self.marshal.SORT_FIELD + 1))
             args.append("-t%s" % self.marshal.DELIMITER)
             if compress_temps:
                 args.append("--compress-program=gzip")
@@ -409,6 +410,8 @@ class PersistentQueue:
         Unset the effects of make_multiprocess_safe, so that only one
         process can interact with the PersistentQueue.
         """
+        if self.get_cache is None or self.put_cache is None:
+            self._open()
         self._multiprocessing = False
 
     def _close(self):

@@ -32,7 +32,7 @@ def get_sort_val(rec):
     val = float(rec[SORT_FIELD - 1])
     return val
 
-def default_compare(self, x, y, get_sort_val=get_sort_val):
+def default_compare(x, y, get_sort_val=get_sort_val):
     """
     Used by LineFiles.dump to sort items before writing to disk.
     """
@@ -59,10 +59,10 @@ def dump(items, output, compare=default_compare):
         items.sort(compare)
     for line in items:
         if isinstance(line, (tuple, list)):
-            line = delimiter.join(line)
+            line = DELIMITER.join(line)
         output.write(line + "\n")
 
-def load(self, input):
+def load(input):
     """
     Loads into memory the full contents of the (already open) 'input'
     file object.  Treats each line as a separate entity to deserialize

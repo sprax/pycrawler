@@ -28,13 +28,13 @@ __maintainer__ = "John R. Frank"
 import os
 import Queue
 import shutil
+import LineFiles
 import traceback
 import subprocess
 import multiprocessing
 from time import time, sleep
-from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Process import Process, multi_syslog
-from PersistentQueue import PersistentQueue, LineFiles
+from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from PersistentQueue import PersistentQueue
 
 class ReadyToSync(Exception): pass
 class Syncing(Exception): pass
@@ -57,10 +57,10 @@ class TriQueue:
         """
         Open the three queues
         """
-        self.inQ = PersistentQueue(self.inQ_path, marshal=LineFiles())
-        self.readyQ = PersistentQueue(self.readyQ_path, marshal=LineFiles())
-        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=LineFiles())
-
+        self.inQ = PersistentQueue(self.inQ_path, marshal=LineFiles)
+        self.readyQ = PersistentQueue(self.readyQ_path, marshal=LineFiles)
+        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=LineFiles)
+        
     def close(self):
         """
         Close all three queues that we have openned.
@@ -147,7 +147,8 @@ class TriQueue:
         # while still holding the semaphore, we launch a process to
         # sort and merge all the files.  The child process acquires
         # the sync_pending semaphore, which we checked above.
-        class Merger(Process):
+        class Merger(multiprocessing.Process):
+            name = "MergerProcess"
             paths = [inQ_syncing, readyQ_syncing, pendingQ_syncing]
             sync_pending = self.sync_pending
             accumulator = self.accumulator
@@ -156,11 +157,13 @@ class TriQueue:
             def run(self):
                 "waits for merge to complete"
                 try:
-                    self.prepare_process()
+                    openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
+                    if not self.debug:
+                        setlogmask(LOG_UPTO(LOG_INFO))
                     self.sync_pending.acquire()
-                    pq = PersistentQueue(self.paths[0], marshal=LineFiles())
-                    queues = [PersistentQueue(self.paths[1], marshal=LineFiles()),
-                              PersistentQueue(self.paths[2], marshal=LineFiles())]
+                    pq = PersistentQueue(self.paths[0], marshal=LineFiles)
+                    queues = [PersistentQueue(self.paths[1], marshal=LineFiles),
+                              PersistentQueue(self.paths[2], marshal=LineFiles)]
                     failure = True
                     try:
                         retval = pq.sort(merge_from=queues, merge_to=self.readyQ)
@@ -177,10 +180,14 @@ class TriQueue:
                             try:
                                 shutil.rmtree(path)
                             except Exception, exc:
-                                multi_syslog(traceback.format_exc(exc))
+                                # send full traceback to syslog in readable form
+                                map(lambda line: syslog(LOG_NOTICE, line), 
+                                    traceback.format_exc(exc).splitlines())
                     self.sync_pending.release()
                 except Exception, exc:
-                    multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
+                    # send full traceback to syslog in readable form
+                    map(lambda line: syslog(LOG_NOTICE, line), 
+                        traceback.format_exc(exc).splitlines())
         # end of Merger definition
         merger = Merger()
         merger.start()
