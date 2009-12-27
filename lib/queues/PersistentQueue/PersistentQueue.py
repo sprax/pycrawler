@@ -259,7 +259,7 @@ class PersistentQueue:
             # make a single file of all the sorted data
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
-            args = ["sort", "-nu"]
+            args = ["sort", "-u"]
             args.append(
                 "-k%d,%d" % (
                     self.marshal.SORT_FIELD, 
@@ -384,13 +384,14 @@ class PersistentQueue:
             if len(self.get_cache) == 0:
                 raise Queue.Empty
             # not empty, so consider next record
-            line = self.get_cache.pop(0)
+            rec = self.get_cache.pop(0)
             if maxP is None or \
-                    self.marshal.get_priority(line) <= maxP:
-                return line
+                    self.marshal.get_sort_val(rec) <= maxP:
+                return rec
             else:
                 # rejecting it because of maxP priority
-                self.get_cache.insert(0, line)
+                self.get_cache.insert(0, rec)
+                syslog("not yet: " + str(rec))
                 raise NotYet
         finally:
             if self._multiprocessing:

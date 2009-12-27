@@ -10,6 +10,7 @@ __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
 import LineFiles
+from nameddict import nameddict, SafeStr
 from PersistentQueue import PersistentQueue as Queue
 from PersistentQueue import NotYet
 from TriQueue import TriQueue, Blocked, Syncing, ReadyToSync

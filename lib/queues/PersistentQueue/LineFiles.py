@@ -1,11 +1,15 @@
 """
-A specialized approach to serializing data for storage of PyCrawler
-state in flat files.
+A specialized approach to serializing data for storage of state in
+flat files.  Originally created for PyCrawler.
 
 LineFiles provides dump and load methods analogous to the marshal and
 pickle modules.  Unlike those other serialization approaches,
 LineFiles only serializes sequence type objects, such as lists,
 tuples, and strings.  It also sorts them.
+
+Since this simple implementation treats all values as strings, if one
+wants something more sophisticated, it should probably look like
+the dump/load methods provided by nameddict.
 """
 # $Id: $
 __author__ = "John R. Frank"
@@ -29,7 +33,7 @@ def get_sort_val(rec):
     Uses the module's SORT_FIELD attribute to obtain a float out of
     part of 'rec'
     """
-    val = float(rec[SORT_FIELD - 1])
+    val = rec[SORT_FIELD - 1]
     return val
 
 def default_compare(x, y, get_sort_val=get_sort_val):

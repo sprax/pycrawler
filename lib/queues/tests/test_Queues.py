@@ -10,13 +10,16 @@ __version__ = "0.1"
 import os
 import sys
 import Queue
+import shutil
+import random
 import traceback
 import multiprocessing
 from time import sleep, time
 from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
+from optparse import OptionParser
 
-sys.path.append(os.getcwd())
+sys.path.insert(0, os.getcwd())
 from PersistentQueue import TriQueue, Blocked, Syncing, ReadyToSync, LineFiles, NotYet
 from PersistentQueue import Queue as PersistentQueue
 
@@ -95,7 +98,6 @@ def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
 def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=False):
     """run sort tests"""
     print "Running test on sorting with %d elements" % ELEMENTS
-    import random
     if p is None:
         p = PersistentQueue(data_path, 10, LineFiles, compress=compress)        
     # define an answer
@@ -139,7 +141,6 @@ def merge_test(data_path, ELEMENTS=1000):
     num_queues = 4
     print "Running test on merging with %d elements from %d queues" \
         % (ELEMENTS, num_queues)
-    import random
     p = PersistentQueue(data_path, 10, LineFiles)
     queues = [p]
     for i in range(num_queues - 1):
@@ -236,14 +237,12 @@ def validate(data_path, compress=False, marshal=LineFiles):
         queue.close()
 
 def triqueue_test(data_path, ELEMENTS=1000):
-    import sys
-    import random
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
     tq = TriQueue(data_path)
     for i in range(1000):
         v = str(random.random())
-        tq.put(v)
+        tq.put([v])
     print "inQ has\t\t%d" % len(tq.inQ)
     print "readyQ has\t%d" % len(tq.readyQ)
     print "pendingQ has\t%d" % len(tq.pendingQ)
@@ -272,6 +271,34 @@ def triqueue_test(data_path, ELEMENTS=1000):
     tq.close()
     print "Test complete."
 
+def triqueue_sort_test(data_path, ELEMENTS=1000):
+    if os.path.exists(data_path):
+        shutil.rmtree(data_path)
+    tq = TriQueue(data_path)
+    for i in range(1000):
+        v = [str(random.random()), str(random.random())]
+        tq.put(v)
+    merger = tq.sync()
+    i = 0
+    while i < 500:
+        try:
+            val = float(tq.get_nowait()[0][0])
+            #print "Got a result: %s" % val
+            sys.stdout.flush()
+            i += 1
+        except Blocked:
+            print "Waiting for TriQueue to unblock"
+            sleep(1)
+        except Queue.Empty:
+            print "Waiting for results to appear in queue"
+            sleep(1)
+        except Syncing:
+            print "Waiting for merged results"
+            sleep(1)
+    print "Done getting results.  Now closing."
+    tq.close()
+    print "Test complete."
+
 def rmdir(dir):
     if os.path.exists(dir):
         try:
@@ -280,8 +307,6 @@ def rmdir(dir):
             print "Did not rmtree the dir. " + str(exc)
 
 if __name__ == "__main__":
-    import shutil
-    from optparse import OptionParser
     parser = OptionParser(description="runs tests for PersistentQueue.  Default runs all tests.")
     parser.add_option("-n", "--num", dest="num", default=1000, type=int, help="num items to put/get in tests")
     parser.add_option("--dir", dest="dir", default="data_test_dir", help="path for dir to use in tests")
