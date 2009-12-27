@@ -113,6 +113,11 @@ class nameddict(dict):
                 # force booleans to integers, so we can de-string
                 # easily in fromstr
                 val = int(val)
+            elif val_type is float:
+                # limit precision to ten digits and force fixed-point
+                # rather than scientific notation, so that sort
+                # doesn't think the "e" is a letter.
+                val = "%.10f" % val
             else:
                 val = val_type(val)
             val = str(val)

@@ -317,13 +317,10 @@ class PersistentQueue:
         if not (hasattr(self.marshal, "_sort_key") \
                     and self.marshal._sort_key is not None):
             return NotImplemented
-        try:
-            # make sure that this PersistentQueue is not in merge_from list
-            merge_from.remove(self)
-        except ValueError:
-            # was not there
-            pass
-        queues = [self] + merge_from
+        if self in merge_from:
+            queues = merge_from
+        else:
+            queues = [self] + merge_from
         for pq in queues:
             assert pq.compress == self.compress, \
                 "All merge_from queues must have same compress flag as this queue"
@@ -399,6 +396,7 @@ class PersistentQueue:
             sort.wait()
             sorted_file.close()
             #print " ".join(args)
+            #print "sorted_path has %d" % len(open(sorted_path).read().splitlines())
             #print "%s --> \n\t%s" % (
             #    sorted_path, 
             #    "\n\t".join(open(sorted_path).read().splitlines()))
@@ -417,18 +415,20 @@ class PersistentQueue:
                 writer = merge_to.get_writer()
             else:
                 writer = Writer(self, 0)
-
             # read in sorted_file and put into newly initialized queue
             sorted_file = open(sorted_path, "r")
+            c = 0
             while True:
                 line = sorted_file.readline()
                 if not line: break
                 if not line.strip(): continue
                 writer.writeline(line)
+                c += 1
+            #print "called writeline %d times" % c
             writer.close()
             # clean up the sorted file
             sorted_file.close()
-            #os.remove(sorted_path)
+            os.remove(sorted_path)
             return True
         finally:
             # setup the index files and prepare usage

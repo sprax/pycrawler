@@ -6,13 +6,14 @@ __version__ = "0.1"
 
 import os
 import sys
+import Queue
 import shutil
 import cPickle
 from random import random
 from optparse import OptionParser
 
 sys.path.insert(0, os.getcwd())
-from PersistentQueue import nameddict, SafeStr
+from PersistentQueue import nameddict, SafeStr, PersistentQueue
 
 class MyND1(nameddict):
     _defaults = {"a": None, "b": None, "c": None}
@@ -66,8 +67,6 @@ def serializing_test():
     print "loads(dumps) works"
 
 def storing_in_persistent_queue():
-    import Queue
-    from PersistentQueue import PersistentQueue
     # make it not sort
     MyND1._sort_key = None
     pq = PersistentQueue(data_test_dir, marshal=MyND1)
@@ -92,8 +91,6 @@ def storing_in_persistent_queue():
     print "passed the storage test"
 
 def sorting_in_persistent_queue():
-    import Queue
-    from PersistentQueue import PersistentQueue
     MyND1._sort_key = 1
     pq = PersistentQueue(data_test_dir, marshal=MyND1)
     NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
@@ -109,9 +106,9 @@ def sorting_in_persistent_queue():
         except Queue.Empty:
             break
         newNDs.append(ND)
-        #assert prev <= ND.get_sort_val(), \
-        #    "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
-        #prev = ND.get_sort_val()
+        assert prev <= ND.get_sort_val(), \
+            "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
+        prev = ND.get_sort_val()
     NDs.sort()
     assert NDs == newNDs, \
         "failed to reconstruct the full sorted list: \nNDs: [%s]\nnewNDs: [%s]" % \
@@ -120,6 +117,46 @@ def sorting_in_persistent_queue():
     pq.close()
     print "passed sorting in persistent queue tests"
 
+def merging():
+    MyND1._sort_key = 1
+    # create a bunch of random data in four queues
+    NDs = []
+    queues = []
+    for i in range(5):
+        pq = PersistentQueue(
+            os.path.join(data_test_dir, str(i)), 
+            marshal=MyND1)
+        queues.append(pq)
+        for i in range(1000):
+            ND = MyND1({"a": random()})
+            NDs.append(ND)
+            pq.put(ND)
+    # use the first queue as the host, and merge all the queues into
+    # the fourth queue
+    ret = queues[0].sort(merge_from=queues) #, merge_to=queues[3])
+    assert ret != NotImplemented, "failed to setup nameddict for sorting"
+    #for i in range(5):
+    #    print "%d has %d" % (i, len(queues[i]))
+    prev = 0
+    newNDs = []
+    while 1:
+        try:
+            ND = queues[0].get()
+        except Queue.Empty:
+            break
+        newNDs.append(ND)
+        assert prev <= ND.get_sort_val(), \
+            "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
+        prev = ND.get_sort_val()
+    NDs.sort()
+    for i in range(5000):
+        a = NDs.pop()
+        b = newNDs.pop()
+        assert a != b, "non-identical instances at %d: %s != %s" % (i, a, b)
+    for pq in queues:
+        pq.close()
+    print "passed merging in persistent queue tests"
+    
 def rmdir(dir):
     if os.path.exists(dir):
         try:
@@ -140,4 +177,6 @@ if __name__ == "__main__":
     storing_in_persistent_queue()
     rmdir(data_test_dir)
     sorting_in_persistent_queue()
+    rmdir(data_test_dir)
+    merging()
     rmdir(data_test_dir)
