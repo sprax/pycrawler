@@ -28,6 +28,81 @@ from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
 
+class Writer:
+    """
+    Internal factory function for creating a Writer object for
+    this queue.  Relies on the caller to have:
+
+        * closed the queue
+
+        * acquired the semaphore, which can be passed into this
+          function to release whenever writer.close() is called.
+          If the semaphore is passed in, then calling
+          writer.close() will also call _open on the queue before
+          releasing the semaphore.
+
+        * computed 'count', which is the current number of objects
+          already serialized into the file pointed to by tail
+    """
+    def __init__(self, queue, count, semaphore=None):
+        """
+        Initialize a file-like object for writing directly to
+        the files hidden inside a PersistentQueue (specified
+        by 'queue')
+        """
+        self.queue = queue
+        self.count = count
+        self.semaphore = semaphore
+        self.current = None
+        self.open(replace=False)
+
+    def open(self, replace):
+        """
+        opens self.current file based on self.queue.tail.  If
+        'replace' is True, then any existing file is overwritten.  If
+        'replace' is False, then new records are appended to the end.
+        """
+        if replace:
+            mode = "wb"
+        else:
+            mode = "ab"
+        file_path = os.path.join(self.queue.data_path, str(self.queue.tail))
+        self.current = open(file_path, mode)
+        if self.queue.compress:
+            self.current = gzip.GzipFile(
+                mode = mode,  fileobj = self.current, compresslevel = 9)
+
+    def _split(self):
+        """
+        Called by 'write' whenever the cache size is reached
+        """
+        self.queue.tail += 1
+        self.count = 0
+        self.current.close()
+        self.open(replace=True)
+
+    def writeline(self, line):
+        """
+        Check if current file is full, _split if necessary,
+        and append record to end of current file.
+        """
+        if self.count == self.queue.cache_size:
+            self._split()
+        self.current.write(line)
+        self.count += 1
+
+    def close(self):
+        """
+        Closes the current file and releases the semaphore.
+        """
+        # we have updated queue.tail, so fix on-disk index
+        self.queue._sync_index()
+        self.current.close()
+        if self.semaphore is not None:
+            self.queue._open()
+            self.semaphore.release()
+# end of Writer class
+
 class PersistentQueue:
 
     class NotYet(Exception): pass
@@ -63,7 +138,10 @@ class PersistentQueue:
 
     def _open(self):
         """
-        Reconstruct index_file and in-memory caches from data on disk
+        Reconstruct in-memory caches from data on disk.  Can be called
+        multiple times, but sync must be called after any data is
+        added and before _open is called.  The close method also calls
+        sync.
         """
         if not os.path.exists(self.data_path):
             os.makedirs(self.data_path)
@@ -217,7 +295,11 @@ class PersistentQueue:
                 self._close()
             self.semaphore.release()
 
-    def sort(self, compress_temps=False, merge_from=[], merge_to=None):
+    def sort(self, 
+             compress_temps=False, 
+             merge_from=[], merge_to=None,
+             unique=False,
+             numerical=True):
         """
         Break the FIFO nature of the data by sorting all the records
         on disk and putting them back into the queue in sorted order.
@@ -230,9 +312,10 @@ class PersistentQueue:
 
         merge_to can be a different PersistentQueue instance into
         which to put all records (instead of into this queue).
-
+        merge_to can be in the list of merge_from.
         """
-        if not (hasattr(self.marshal, "SORTABLE") and self.marshal.SORTABLE):
+        if not (hasattr(self.marshal, "_sort_key") \
+                    and self.marshal._sort_key is not None):
             return NotImplemented
         try:
             # make sure that this PersistentQueue is not in merge_from list
@@ -260,11 +343,19 @@ class PersistentQueue:
             # make a single file of all the sorted data
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
-            args = ["sort", "-nu"]
+            args = ["sort"]
+            # treat sort field as a number
+            if numerical:
+                args.append("-n")
+            # keep only first of multiple records with same sort field
+            if unique:  
+                args.append("-u")
+            # define the sort field
             args.append(
                 "-k%d,%d" % (
-                    self.marshal.SORT_FIELD, 
-                    self.marshal.SORT_FIELD + 1))
+                    self.marshal._sort_key + 1, 
+                    self.marshal._sort_key + 2))
+            # define field separator
             args.append("-t%s" % self.marshal.DELIMITER)
             if compress_temps:
                 args.append("--compress-program=gzip")
@@ -273,6 +364,10 @@ class PersistentQueue:
             for pq in queues:
                 files += [os.path.join(pq.data_path, file_name)
                           for file_name in os.listdir(pq.data_path)]
+            #for file_name in files:
+            #    print "%s --> \n\t%s" % (
+            #        file_name, 
+            #        "\n\t".join(open(file_name).read().splitlines()))
             if self.compress:
                 # If we are compressing, then we must load all the
                 # files here and push them over stdin, which loses
@@ -303,37 +398,59 @@ class PersistentQueue:
             syslog(LOG_DEBUG, "waiting for sort to finish, sort_file is open")
             sort.wait()
             sorted_file.close()
+            #print " ".join(args)
+            #print "%s --> \n\t%s" % (
+            #    sorted_path, 
+            #    "\n\t".join(open(sorted_path).read().splitlines()))
+            #sys.exit()
+            # remove all files from all queues
             for file_name in files:
                 os.remove(file_name)
-            syslog(LOG_DEBUG, "re-populating FIFO")
-            # setup the index files and prepare for put
+            # fix in-memory head/tail state
             for pq in queues:
-                pq._open()
+                pq.head = 0
+                pq.tail = 1
+            syslog(LOG_DEBUG, "re-populating FIFO")
+            if merge_to in merge_from:
+                writer = Writer(self, 0)
+            elif merge_to is not None:
+                writer = merge_to.get_writer()
+            else:
+                writer = Writer(self, 0)
+
             # read in sorted_file and put into newly initialized queue
             sorted_file = open(sorted_path, "r")
             while True:
                 line = sorted_file.readline()
                 if not line: break
-                line = line.strip()
-                if merge_to is not None:
-                    merge_to.put(line)
-                else:
-                    # do what self.put() does:
-                    self.put_cache.append(line)
-                    if len(self.put_cache) >= self.cache_size:
-                        self._split()
-            # cause _sync:
-            if merge_to is not None:
-                merge_to.sync()
-            else:
-                self._sync()
+                if not line.strip(): continue
+                writer.writeline(line)
+            writer.close()
             # clean up the sorted file
             sorted_file.close()
-            os.remove(sorted_path)
+            #os.remove(sorted_path)
             return True
         finally:
+            # setup the index files and prepare usage
+            for pq in queues:
+                pq._open()
             for pq in queues:
                 pq.semaphore.release()
+
+    def get_writer(self):
+        """
+        Returns a file-like object that has 'writeline' and 'close'
+        methods for allowing the caller to write directly to disk
+        records that have already been serialized.
+        """
+        self.semaphore.acquire()
+        # in-memory put_cache has same number of records as the
+        # on-disk file identified by self.tail
+        count = len(self.put_cache)
+        # flush to disk and close in-memory data structures, so we can
+        # call _open in Writer.close()
+        self._close()
+        return Writer(self, count, self.semaphore)
 
     def sync(self):
         """

@@ -6,6 +6,7 @@ __version__ = "0.1"
 
 import os
 import sys
+import shutil
 import cPickle
 from random import random
 from optparse import OptionParser
@@ -64,9 +65,79 @@ def serializing_test():
     assert NDs == NewNDs, "failed to 'loads' from 'dumps':\nNDs:    %s\nNewNDs: %s" % (NDs, NewNDs)
     print "loads(dumps) works"
 
+def storing_in_persistent_queue():
+    import Queue
+    from PersistentQueue import PersistentQueue
+    # make it not sort
+    MyND1._sort_key = None
+    pq = PersistentQueue(data_test_dir, marshal=MyND1)
+    NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
+    for ND in NDs:
+        pq.put(ND)
+        pq.sync()
+    pq.close()
+    pq = PersistentQueue("data_test_dir", marshal=MyND1)
+    newNDs = []
+    while 1:
+        try:
+            ND = pq.get()
+        except Queue.Empty:
+            break
+        newNDs.append(ND)        
+    pq.close()
+    assert NDs == newNDs, \
+        "failed to get the same thing back: \nNDs: [%s]\nnewNDs: [%s]" % \
+        (", ".join([str(x) for x in NDs]),
+         ", ".join([str(x) for x in newNDs]))
+    print "passed the storage test"
+
+def sorting_in_persistent_queue():
+    import Queue
+    from PersistentQueue import PersistentQueue
+    MyND1._sort_key = 1
+    pq = PersistentQueue(data_test_dir, marshal=MyND1)
+    NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
+    for ND in NDs:
+        pq.put(ND)
+    ret = pq.sort()
+    assert ret != NotImplemented, "failed to setup nameddict for sorting"
+    prev = 0
+    newNDs = []
+    while 1:
+        try:
+            ND = pq.get()
+        except Queue.Empty:
+            break
+        newNDs.append(ND)
+        #assert prev <= ND.get_sort_val(), \
+        #    "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
+        #prev = ND.get_sort_val()
+    NDs.sort()
+    assert NDs == newNDs, \
+        "failed to reconstruct the full sorted list: \nNDs: [%s]\nnewNDs: [%s]" % \
+        (", ".join([str(x) for x in NDs]),
+         ", ".join([str(x) for x in newNDs]))
+    pq.close()
+    print "passed sorting in persistent queue tests"
+
+def rmdir(dir):
+    if os.path.exists(dir):
+        try:
+            shutil.rmtree(dir)
+        except Exception, exc:
+            print "Did not rmtree the dir. " + str(exc)
+
+data_test_dir = "data_test_dir"
+
 if __name__ == "__main__":
     test(MyND1, {"a": 1.0, "b": None})
     test(MyND2, {"a": False, "b": "car|bomb"})
 
     sort_test()
     serializing_test()
+
+    rmdir(data_test_dir)
+    storing_in_persistent_queue()
+    rmdir(data_test_dir)
+    sorting_in_persistent_queue()
+    rmdir(data_test_dir)

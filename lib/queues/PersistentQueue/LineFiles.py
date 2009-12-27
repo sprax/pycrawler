@@ -17,8 +17,7 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
-SORTABLE = True
-SORT_FIELD = 1
+_sort_key = 0
 DELIMITER = "|"
 
 def make_record(line):
@@ -30,10 +29,10 @@ def make_record(line):
 
 def get_sort_val(rec):
     """
-    Uses the module's SORT_FIELD attribute to obtain a float out of
+    Uses the module's _sort_key attribute to obtain a float out of
     part of 'rec'
     """
-    val = float(rec[SORT_FIELD - 1])
+    val = float(rec[_sort_key])
     return val
 
 def default_compare(x, y, get_sort_val=get_sort_val):

@@ -70,6 +70,12 @@ def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
         "Got out different list than put in: \n%s\n%s" % \
         (out, range(ELEMENTS))
     p.sync()
+    assert len(p) == 0, "failed to have an empty queue after removing all items"
+    try:
+        a = p.get()
+        assert False, "there are still items left in queue!: %s" % a
+    except Queue.Empty:
+        pass
     p.close()
 
 def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
@@ -114,9 +120,11 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     p.sync()
     # this could take time
     start = time()
-    ret = p.sort(compress_temps)
+    ret = p.sort(compress_temps, numerical=True)
     end = time()
     assert ret is True, "PersistentQueue.PersistentQueue.sort failed with ret = " + str(ret)
+    print "head = %d, tail = %d" % (p.head, p.tail)
+    print "index_file: %s" % open(p.index_file).read()
     elapsed = end - start
     rate = elapsed and (ELEMENTS / elapsed) or 0.0
     # get the response and compare with answer
@@ -132,6 +140,12 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
         assert vals[i] <= vals[i+1], "Incorrectly sorted result:\nvals: %s\nanswer: %s" % (vals, answer)
     print "Sorting succeeded.  Sort took %s seconds, %.2f records/second" \
         % (elapsed, rate)
+    assert len(p) == 0, "failed to have an empty queue after removing all items"
+    try:
+        a = p.get()
+        assert False, "there are still items left in queue!: %s" % a
+    except Queue.Empty:
+        pass
     p.close()
 
 def merge_test(data_path, ELEMENTS=1000):

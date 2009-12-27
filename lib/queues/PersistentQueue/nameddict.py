@@ -25,8 +25,6 @@ TODO:
  * more tests...
 """
 
-DELIMITER = "|"
-
 class SafeStr:
     """
     A wrapper around urlsafe_b64decode/encode for stuffing rich
@@ -73,6 +71,9 @@ class nameddict(dict):
     # key for the class in comparison operators.  See __lt__, __gt__,
     # __eq__, etc.
     _sort_key = None
+
+    # used in (de)serializing and sorting
+    DELIMITER = "|"
 
     def __init__(self, attrs=None):
         """
@@ -122,7 +123,7 @@ class nameddict(dict):
         """
         Returns DELIMITER-separated string made from get_val_vector
         """
-        line = DELIMITER.join(self.get_val_vector())
+        line = self.DELIMITER.join(self.get_val_vector())
         return line
 
     class BadFormat(Exception): pass
@@ -136,15 +137,15 @@ class nameddict(dict):
         assert cls._key_ordering is not None, \
             "fromstr() requires subclass to define _key_ordering"
         try:
-            parts = line.split(DELIMITER)
+            parts = line.split(cls.DELIMITER)
         except Exception, exc:
             raise cls.BadFormat(
                 "Failed to split on '%s' this line: %s" % 
-                (DELIMITER, repr(line)))
+                (cls.DELIMITER, repr(line)))
         if not len(parts) == len(cls._key_ordering):
             raise cls.BadFormat(
-                "len(parts) = %d differs from %d" %
-                (len(parts), len(cls._key_ordering)))
+                "len(parts) = %d differs from %d\nparts: %s\n_key_ordering: %s" %
+                (len(parts), len(cls._key_ordering), parts, cls._key_ordering))
         attrs = {}
         for attr_num in range(len(cls._key_ordering)):
             param = cls._key_ordering[attr_num]
@@ -216,8 +217,8 @@ class nameddict(dict):
         if not self.same_type(other): return NotImplemented
         return self.get_sort_val() != other.get_sort_val()
 
-    @staticmethod
-    def dumps(items):
+    @classmethod
+    def dumps(cls, items):
         """
         'items' must be a list of instances of nameddict or properly
         constructed subclasses.  This serializes each item, joins with
@@ -230,7 +231,8 @@ class nameddict(dict):
         Each item is treated as a separate entity to serialize using its
         __str__ method.
         """
-        items.sort()
+        if cls._sort_key is not None:
+            items.sort()
         return "\n".join([str(x) for x in items]) + "\n"
 
     @classmethod
@@ -258,4 +260,8 @@ class nameddict(dict):
         as a separate entity to deserialize using this class' fromstr
         method.
         """
-        return [cls.fromstr(line) for line in input.splitlines()]
+        ret = []
+        for line in input.splitlines():
+            if line:
+                ret.append(cls.fromstr(line))
+        return ret
