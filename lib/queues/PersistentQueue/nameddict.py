@@ -94,7 +94,7 @@ class nameddict(dict):
             self.__dict__.update(attrs)
 
     def __getinitargs__(self):
-        return (self.__dict__,) # self._key_ordering, self._val_types)
+        return (self.__dict__,)
 
     def get_val_vector(self):
         """

@@ -26,7 +26,7 @@ __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
 import os
-import Queue
+import Queue as NormalQueue
 import shutil
 import LineFiles
 import traceback
@@ -34,14 +34,14 @@ import subprocess
 import multiprocessing
 from time import time, sleep
 from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
-from PersistentQueue import PersistentQueue
-
-class ReadyToSync(Exception): pass
-class Syncing(Exception): pass
-class Blocked(Exception): pass
+from PersistentQueue import Queue
 
 class TriQueue:
     debug = True
+
+    class ReadyToSync(Exception): pass
+    class Syncing(Exception): pass
+    class Blocked(Exception): pass
 
     def __init__(self, data_path):
         self.data_path = data_path
@@ -57,9 +57,9 @@ class TriQueue:
         """
         Open the three queues
         """
-        self.inQ = PersistentQueue(self.inQ_path, marshal=LineFiles)
-        self.readyQ = PersistentQueue(self.readyQ_path, marshal=LineFiles)
-        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=LineFiles)
+        self.inQ = Queue(self.inQ_path, marshal=LineFiles)
+        self.readyQ = Queue(self.readyQ_path, marshal=LineFiles)
+        self.pendingQ = Queue(self.pendingQ_path, marshal=LineFiles)
         
     def close(self):
         """
@@ -72,7 +72,7 @@ class TriQueue:
     def put(self, data, block=True):
         acquired = self.semaphore.acquire(block=False)
         if not acquired:
-            raise Blocked
+            raise self.Blocked
         self.inQ.put(data)
         self.semaphore.release()
 
@@ -90,20 +90,20 @@ class TriQueue:
         """
         acquired = self.semaphore.acquire(block=block)
         if not acquired:
-            raise Blocked
+            raise self.Blocked
         try:
             data = self.readyQ.get(maxP=maxP)
             self.pendingQ.put(data)
             return data
-        except Queue.Empty:
+        except NormalQueue.Empty:
             if self.sync_pending.get_value() is 0:
-                raise Syncing
+                raise self.Syncing
             else:
                 self.readyQ.make_singleprocess_safe()
             if (len(self.inQ) + len(self.pendingQ)) > 0:
-                raise ReadyToSync
+                raise self.ReadyToSync
             else:
-                raise Queue.Empty
+                raise NormalQueue.Empty
         finally:
             self.semaphore.release()
 
@@ -120,12 +120,12 @@ class TriQueue:
         """
         acquired = self.semaphore.acquire(block)
         if not acquired:
-            raise Blocked
+            raise self.Blocked
         acquired = self.sync_pending.acquire(block=False)
         if not acquired:
             # sync is already running
             self.semaphore.release()
-            raise Syncing
+            raise self.Syncing
         # release sync_pending so Merger child process can acquire it.
         # This is inside the semaphore.acquire, so no other process
         # can get confused about whether we're syncing.
@@ -161,9 +161,9 @@ class TriQueue:
                     if not self.debug:
                         setlogmask(LOG_UPTO(LOG_INFO))
                     self.sync_pending.acquire()
-                    pq = PersistentQueue(self.paths[0], marshal=LineFiles)
-                    queues = [PersistentQueue(self.paths[1], marshal=LineFiles),
-                              PersistentQueue(self.paths[2], marshal=LineFiles)]
+                    pq = Queue(self.paths[0], marshal=LineFiles)
+                    queues = [Queue(self.paths[1], marshal=LineFiles),
+                              Queue(self.paths[2], marshal=LineFiles)]
                     failure = True
                     try:
                         retval = pq.sort(merge_from=queues, merge_to=self.readyQ)

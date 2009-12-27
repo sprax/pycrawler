@@ -33,7 +33,7 @@ def get_sort_val(rec):
     Uses the module's SORT_FIELD attribute to obtain a float out of
     part of 'rec'
     """
-    val = rec[SORT_FIELD - 1]
+    val = float(rec[SORT_FIELD - 1])
     return val
 
 def default_compare(x, y, get_sort_val=get_sort_val):

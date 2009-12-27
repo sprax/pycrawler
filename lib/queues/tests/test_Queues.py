@@ -20,17 +20,15 @@ from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIG
 from optparse import OptionParser
 
 sys.path.insert(0, os.getcwd())
-from PersistentQueue import TriQueue, Blocked, Syncing, ReadyToSync, LineFiles, NotYet
-from PersistentQueue import Queue as PersistentQueue
+import PersistentQueue
 
-## Tests
 def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
     """run speed tests and average speeds of put and get"""
     if p is None:
         if lines:
-            p = PersistentQueue(data_path, 10, LineFiles, compress=compress)
+            p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
         else:
-            p = PersistentQueue(data_path, 10, compress=compress)
+            p = PersistentQueue.Queue(data_path, 10, compress=compress)
     start = time()
     for a in range(ELEMENTS):
         p.put(str(a))
@@ -50,7 +48,7 @@ def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
 def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue(data_path, 10, compress=compress)
+        p = PersistentQueue.Queue(data_path, 10, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
         (ELEMENTS, p.cache_size)
     for a in range(ELEMENTS):
@@ -77,7 +75,7 @@ def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
 def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue(data_path, 10, LineFiles, compress=compress)
+        p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
         (ELEMENTS, p.cache_size)
     for a in range(ELEMENTS):
@@ -99,7 +97,7 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     """run sort tests"""
     print "Running test on sorting with %d elements" % ELEMENTS
     if p is None:
-        p = PersistentQueue(data_path, 10, LineFiles, compress=compress)        
+        p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles, compress=compress)        
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -141,11 +139,11 @@ def merge_test(data_path, ELEMENTS=1000):
     num_queues = 4
     print "Running test on merging with %d elements from %d queues" \
         % (ELEMENTS, num_queues)
-    p = PersistentQueue(data_path, 10, LineFiles)
+    p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles)
     queues = [p]
     for i in range(num_queues - 1):
         queues.append(
-            PersistentQueue(data_path + "/%d" % i, 10, LineFiles))
+            PersistentQueue.Queue(data_path + "/%d" % i, 10, PersistentQueue.LineFiles))
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -202,7 +200,7 @@ class PersistentQueueContainer(multiprocessing.Process):
         multiprocessing.Process
         """
         syslog("Starting")
-        self.queue = PersistentQueue(self.data_path, compress=True)
+        self.queue = PersistentQueue.Queue(self.data_path, compress=True)
         while self.go.is_set() and self._go.is_set():
             sleep(1)
         syslog("syncing before closing")
@@ -222,12 +220,12 @@ def process_test(data_path, ELEMENTS):
     basic_test(data_path, ELEMENTS, p=pqc.queue)
     pqc.close()
 
-def validate(data_path, compress=False, marshal=LineFiles):
+def validate(data_path, compress=False, marshal=PersistentQueue.LineFiles):
     """
     Prints diagnostics about the queue found at data_path
     """
     try:
-        queue = PersistentQueue(data_path, compress=compress, marshal=marshal)
+        queue = PersistentQueue.Queue(data_path, compress=compress, marshal=marshal)
     except Exception, exc:
         queue = None
         print "Failed to instantiate PersistentQueue(%s)\n\nbecause:\n%s" \
@@ -239,7 +237,7 @@ def validate(data_path, compress=False, marshal=LineFiles):
 def triqueue_test(data_path, ELEMENTS=1000):
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
-    tq = TriQueue(data_path)
+    tq = PersistentQueue.TriQueue(data_path)
     for i in range(1000):
         v = str(random.random())
         tq.put([v])
@@ -259,7 +257,7 @@ def triqueue_test(data_path, ELEMENTS=1000):
             sys.stdout.flush()
             i += 1
         except Blocked:
-            print "Waiting for TriQueue to unblock"
+            print "Waiting for PersistentQueue.TriQueue to unblock"
             sleep(1)
         except Queue.Empty:
             print "Waiting for results to appear in queue"
@@ -274,7 +272,7 @@ def triqueue_test(data_path, ELEMENTS=1000):
 def triqueue_sort_test(data_path, ELEMENTS=1000):
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
-    tq = TriQueue(data_path)
+    tq = PersistentQueue.TriQueue(data_path)
     for i in range(1000):
         v = [str(random.random()), str(random.random())]
         tq.put(v)
@@ -287,7 +285,7 @@ def triqueue_sort_test(data_path, ELEMENTS=1000):
             sys.stdout.flush()
             i += 1
         except Blocked:
-            print "Waiting for TriQueue to unblock"
+            print "Waiting for PersistentQueue.TriQueue to unblock"
             sleep(1)
         except Queue.Empty:
             print "Waiting for results to appear in queue"
@@ -298,6 +296,29 @@ def triqueue_sort_test(data_path, ELEMENTS=1000):
     print "Done getting results.  Now closing."
     tq.close()
     print "Test complete."
+
+def exceptions_tests():
+    try:
+        raise PersistentQueue.Queue.NotYet
+    except Exception, exc:
+        assert str(type(exc)) == "<class 'PersistentQueue.Queue.NotYet'>", \
+            "Failed to raise the correct exception: <class 'PersistentQueue.Queue.NotYet'> != " + str(type(exc))
+    try:
+        raise PersistentQueue.TriQueue.Syncing
+    except Exception, exc:
+        assert str(type(exc)) == "<class 'PersistentQueue.TriQueue.Syncing'>", \
+            "Failed to raise the correct exception: <class 'PersistentQueue.TriQueue.Syncing'> != " + str(type(exc))
+    try:
+        raise PersistentQueue.TriQueue.Blocked
+    except Exception, exc:
+        assert str(type(exc)) == "<class 'PersistentQueue.TriQueue.Blocked'>", \
+            "Failed to raise the correct exception: <class 'PersistentQueue.TriQueue.Blocked'> != " + str(type(exc))
+    try:
+        raise PersistentQueue.TriQueue.ReadyToSync
+    except Exception, exc:
+        assert str(type(exc)) == "<class 'PersistentQueue.TriQueue.ReadyToSync'>", \
+            "Failed to raise the correct exception: <class 'PersistentQueue.TriQueue.ReadyToSync'> != " + str(type(exc))
+    print "Raised all exceptions correctly"
 
 def rmdir(dir):
     if os.path.exists(dir):
@@ -314,10 +335,11 @@ if __name__ == "__main__":
     parser.add_option("--basic", dest="basic", default=False, action="store_true", help="run basic test")
     parser.add_option("--speed", dest="speed", default=False, action="store_true", help="run speed test")
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
-    parser.add_option("--lines", dest="lines", default=False, action="store_true", help="run test of LineFiles")
-    parser.add_option("--triqueue", dest="triqueue", default=False, action="store_true", help="run the TriQueue tests")
+    parser.add_option("--lines", dest="lines", default=False, action="store_true", help="run test of PersistentQueue.LineFiles")
+    parser.add_option("--triqueue", dest="triqueue", default=False, action="store_true", help="run the PersistentQueue.TriQueue tests")
     parser.add_option("--sort", dest="sort", default=False, action="store_true", help="run test of sorting")
     parser.add_option("--merge", dest="merge", default=False, action="store_true", help="run test of sorted merging of multiple queues")
+    parser.add_option("--exceptions", dest="exceptions", default=False, action="store_true", help="run tests of exceptions that can be raised")
     parser.add_option("--keep", dest="keep", default=False, action="store_true", help="keep the data dir after the test")
     (options, args) = parser.parse_args()
 
@@ -345,6 +367,8 @@ if __name__ == "__main__":
         merge_test(options.dir, options.num)
     elif options.triqueue:
         triqueue_test(options.dir, options.num)
+    elif options.exceptions:
+        exceptions_tests()
     else:
         basic_test(options.dir, options.num)
         rmdir(options.dir)        
@@ -360,6 +384,8 @@ if __name__ == "__main__":
         rmdir(options.dir)
         triqueue_test(options.dir, options.num)
 
+        exceptions_tests()
+        
     if not options.keep:
         rmdir(options.dir)
 

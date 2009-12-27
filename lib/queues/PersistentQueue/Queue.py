@@ -16,7 +16,7 @@ import os
 import sys
 import copy
 import gzip
-import Queue
+import Queue as NormalQueue
 import cPickle as pickle
 #import marshal
 import traceback
@@ -28,9 +28,10 @@ from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
 
-class NotYet(Exception): pass
+class Queue:
 
-class PersistentQueue:
+    class NotYet(Exception): pass
+
     """
     Provides a Queue interface to a set of flat files stored on disk.
     """
@@ -259,7 +260,7 @@ class PersistentQueue:
             # make a single file of all the sorted data
             sorted_path = "%s/../sorted" % self.data_path
             sorted_file = open(sorted_path, "w")
-            args = ["sort", "-u"]
+            args = ["sort", "-nu"]
             args.append(
                 "-k%d,%d" % (
                     self.marshal.SORT_FIELD, 
@@ -382,7 +383,7 @@ class PersistentQueue:
                 self._join()
             # in-memory cache is fresh, so if empty:
             if len(self.get_cache) == 0:
-                raise Queue.Empty
+                raise NormalQueue.Empty
             # not empty, so consider next record
             rec = self.get_cache.pop(0)
             if maxP is None or \
@@ -392,7 +393,7 @@ class PersistentQueue:
                 # rejecting it because of maxP priority
                 self.get_cache.insert(0, rec)
                 syslog("not yet: " + str(rec))
-                raise NotYet
+                raise self.NotYet
         finally:
             if self._multiprocessing:
                 self._close()
@@ -461,8 +462,8 @@ class PersistentQueue:
                     if len(self.get_cache) > 0:
                         rec = self.get_cache.pop(0)
                     else:
-                        raise Queue.Empty
+                        raise NormalQueue.Empty
                 other_q.put(rec)
-            except Queue.Empty:
+            except NormalQueue.Empty:
                 break
         self.semaphore.release()
