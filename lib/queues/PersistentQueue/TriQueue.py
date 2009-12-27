@@ -43,11 +43,12 @@ class TriQueue:
     class Syncing(Exception): pass
     class Blocked(Exception): pass
 
-    def __init__(self, data_path):
+    def __init__(self, data_path, marshal=LineFiles):
         self.data_path = data_path
         self.inQ_path = os.path.join(data_path, "inQ")
         self.readyQ_path = os.path.join(data_path, "readyQ")
         self.pendingQ_path = os.path.join(data_path, "pendingQ")
+        self.marshal = marshal
         self.open_queues()
 
         self.semaphore = multiprocessing.Semaphore()
@@ -57,9 +58,9 @@ class TriQueue:
         """
         Open the three queues
         """
-        self.inQ = PersistentQueue(self.inQ_path, marshal=LineFiles)
-        self.readyQ = PersistentQueue(self.readyQ_path, marshal=LineFiles)
-        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=LineFiles)
+        self.inQ = PersistentQueue(self.inQ_path, marshal=self.marshal)
+        self.readyQ = PersistentQueue(self.readyQ_path, marshal=self.marshal)
+        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=self.marshal)
         
     def close(self):
         """
@@ -149,6 +150,7 @@ class TriQueue:
         # the sync_pending semaphore, which we checked above.
         class Merger(multiprocessing.Process):
             name = "MergerProcess"
+            marshal = self.marshal
             paths = [inQ_syncing, readyQ_syncing, pendingQ_syncing]
             sync_pending = self.sync_pending
             accumulator = self.accumulator
@@ -161,9 +163,9 @@ class TriQueue:
                     if not self.debug:
                         setlogmask(LOG_UPTO(LOG_INFO))
                     self.sync_pending.acquire()
-                    pq = PersistentQueue(self.paths[0], marshal=LineFiles)
-                    queues = [PersistentQueue(self.paths[1], marshal=LineFiles),
-                              PersistentQueue(self.paths[2], marshal=LineFiles)]
+                    pq = PersistentQueue(self.paths[0], marshal=self.marshal)
+                    queues = [PersistentQueue(self.paths[1], marshal=self.marshal),
+                              PersistentQueue(self.paths[2], marshal=self.marshal)] 
                     failure = True
                     try:
                         retval = pq.sort(merge_from=queues, merge_to=self.readyQ)

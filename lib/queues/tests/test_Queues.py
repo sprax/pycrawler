@@ -270,14 +270,14 @@ def triqueue_test(data_path, ELEMENTS=1000):
             #print "Got a result: %s" % val
             sys.stdout.flush()
             i += 1
-        except Blocked:
+        except PersistentQueue.TriQueue.Blocked:
             print "Waiting for PersistentQueue.TriQueue to unblock"
             sleep(1)
         except Queue.Empty:
             print "Waiting for results to appear in queue"
             sleep(1)
-        except Syncing:
-            print "Waiting for merged results"
+        except PersistentQueue.TriQueue.Syncing:
+            print "triqueue_test: Waiting for merged results"
             sleep(1)
     print "Done getting results.  Now closing."
     tq.close()
@@ -298,14 +298,14 @@ def triqueue_sort_test(data_path, ELEMENTS=1000):
             #print "Got a result: %s" % val
             sys.stdout.flush()
             i += 1
-        except Blocked:
+        except PersistentQueue.TriQueue.Blocked:
             print "Waiting for PersistentQueue.TriQueue to unblock"
             sleep(1)
         except Queue.Empty:
             print "Waiting for results to appear in queue"
             sleep(1)
-        except Syncing:
-            print "Waiting for merged results"
+        except PersistentQueue.TriQueue.Syncing:
+            print "triqueue_sort_test: Waiting for merged results"
             sleep(1)
     print "Done getting results.  Now closing."
     tq.close()

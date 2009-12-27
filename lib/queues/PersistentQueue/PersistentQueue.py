@@ -288,6 +288,8 @@ class PersistentQueue:
         try:
             if self._multiprocessing:
                 self._open()
+            if self.get_cache is None:
+                return (self.tail - self.head - 1) * self.cache_size
             return ((self.tail - self.head - 1) * self.cache_size) + \
                     len(self.put_cache) + len(self.get_cache)
         finally:
