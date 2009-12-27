@@ -122,11 +122,10 @@ class nameddict:
                 return False
         return True
 
-    def __str__(self):
+    def get_val_vector(self):
         """
-        Provides a string of DELIMITER-separated string
-        representations of attrs of this instance.  Ordered by
-        self._key_ordering
+        Returns a list of string representations of attributes of this
+        instance.  Ordered by self._key_ordering
         """
         parts = []
         for attr_num in range(len(self._key_ordering)):
@@ -143,7 +142,13 @@ class nameddict:
                 val = val_type(val)
             val = str(val)
             parts.append(val)
-        line = DELIMITER.join(parts)
+        return parts
+
+    def __str__(self):
+        """
+        Returns DELIMITER-separated string made from get_val_vector
+        """
+        line = DELIMITER.join(self.get_val_vector())
         return line
 
     class BadFormat(Exception): pass
