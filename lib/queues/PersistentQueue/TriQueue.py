@@ -34,7 +34,7 @@ import subprocess
 import multiprocessing
 from time import time, sleep
 from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
-from PersistentQueue import Queue
+from PersistentQueue import PersistentQueue
 
 class TriQueue:
     debug = True
@@ -57,9 +57,9 @@ class TriQueue:
         """
         Open the three queues
         """
-        self.inQ = Queue(self.inQ_path, marshal=LineFiles)
-        self.readyQ = Queue(self.readyQ_path, marshal=LineFiles)
-        self.pendingQ = Queue(self.pendingQ_path, marshal=LineFiles)
+        self.inQ = PersistentQueue(self.inQ_path, marshal=LineFiles)
+        self.readyQ = PersistentQueue(self.readyQ_path, marshal=LineFiles)
+        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=LineFiles)
         
     def close(self):
         """
@@ -161,9 +161,9 @@ class TriQueue:
                     if not self.debug:
                         setlogmask(LOG_UPTO(LOG_INFO))
                     self.sync_pending.acquire()
-                    pq = Queue(self.paths[0], marshal=LineFiles)
-                    queues = [Queue(self.paths[1], marshal=LineFiles),
-                              Queue(self.paths[2], marshal=LineFiles)]
+                    pq = PersistentQueue(self.paths[0], marshal=LineFiles)
+                    queues = [PersistentQueue(self.paths[1], marshal=LineFiles),
+                              PersistentQueue(self.paths[2], marshal=LineFiles)]
                     failure = True
                     try:
                         retval = pq.sort(merge_from=queues, merge_to=self.readyQ)

@@ -11,5 +11,5 @@ __maintainer__ = "John R. Frank"
 
 import LineFiles
 from nameddict import nameddict, SafeStr
-from Queue import Queue
+from PersistentQueue import PersistentQueue
 from TriQueue import TriQueue

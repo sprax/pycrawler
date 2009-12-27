@@ -28,7 +28,7 @@ from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
 
-class Queue:
+class PersistentQueue:
 
     class NotYet(Exception): pass
 

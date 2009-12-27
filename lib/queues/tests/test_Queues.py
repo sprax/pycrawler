@@ -1,5 +1,5 @@
 """
-Tests for PersistentQueue.Queue and PersistentQueue.TriQueue
+Tests for PersistentQueue.PersistentQueue and PersistentQueue.TriQueue
 """
 #$Id: $
 __author__ = "John R. Frank"
@@ -26,9 +26,9 @@ def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
     """run speed tests and average speeds of put and get"""
     if p is None:
         if lines:
-            p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
+            p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
         else:
-            p = PersistentQueue.Queue(data_path, 10, compress=compress)
+            p = PersistentQueue.PersistentQueue(data_path, 10, compress=compress)
     start = time()
     for a in range(ELEMENTS):
         p.put(str(a))
@@ -48,7 +48,7 @@ def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
 def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue.Queue(data_path, 10, compress=compress)
+        p = PersistentQueue.PersistentQueue(data_path, 10, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
         (ELEMENTS, p.cache_size)
     for a in range(ELEMENTS):
@@ -75,7 +75,7 @@ def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
 def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
+        p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
         (ELEMENTS, p.cache_size)
     for a in range(ELEMENTS):
@@ -97,7 +97,7 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     """run sort tests"""
     print "Running test on sorting with %d elements" % ELEMENTS
     if p is None:
-        p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles, compress=compress)        
+        p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)        
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -116,7 +116,7 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     start = time()
     ret = p.sort(compress_temps)
     end = time()
-    assert ret is True, "PersistentQueue.Queue.sort failed with ret = " + str(ret)
+    assert ret is True, "PersistentQueue.PersistentQueue.sort failed with ret = " + str(ret)
     elapsed = end - start
     rate = elapsed and (ELEMENTS / elapsed) or 0.0
     # get the response and compare with answer
@@ -139,11 +139,11 @@ def merge_test(data_path, ELEMENTS=1000):
     num_queues = 4
     print "Running test on merging with %d elements from %d queues" \
         % (ELEMENTS, num_queues)
-    p = PersistentQueue.Queue(data_path, 10, PersistentQueue.LineFiles)
+    p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles)
     queues = [p]
     for i in range(num_queues - 1):
         queues.append(
-            PersistentQueue.Queue(data_path + "/%d" % i, 10, PersistentQueue.LineFiles))
+            PersistentQueue.PersistentQueue(data_path + "/%d" % i, 10, PersistentQueue.LineFiles))
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -196,11 +196,11 @@ class PersistentQueueContainer(multiprocessing.Process):
         self._go.clear()
     def run(self):
         """
-        A simple test of using a PersistentQueue.Queue inside a
+        A simple test of using a PersistentQueue.PersistentQueue inside a
         multiprocessing.Process
         """
         syslog("Starting")
-        self.queue = PersistentQueue.Queue(self.data_path, compress=True)
+        self.queue = PersistentQueue.PersistentQueue(self.data_path, compress=True)
         while self.go.is_set() and self._go.is_set():
             sleep(1)
         syslog("syncing before closing")
@@ -225,7 +225,7 @@ def validate(data_path, compress=False, marshal=PersistentQueue.LineFiles):
     Prints diagnostics about the queue found at data_path
     """
     try:
-        queue = PersistentQueue.Queue(data_path, compress=compress, marshal=marshal)
+        queue = PersistentQueue.PersistentQueue(data_path, compress=compress, marshal=marshal)
     except Exception, exc:
         queue = None
         print "Failed to instantiate PersistentQueue(%s)\n\nbecause:\n%s" \
@@ -299,10 +299,10 @@ def triqueue_sort_test(data_path, ELEMENTS=1000):
 
 def exceptions_tests():
     try:
-        raise PersistentQueue.Queue.NotYet
+        raise PersistentQueue.PersistentQueue.NotYet
     except Exception, exc:
-        assert str(type(exc)) == "<class 'PersistentQueue.Queue.NotYet'>", \
-            "Failed to raise the correct exception: <class 'PersistentQueue.Queue.NotYet'> != " + str(type(exc))
+        assert str(type(exc)) == "<class 'PersistentQueue.PersistentQueue.NotYet'>", \
+            "Failed to raise the correct exception: <class 'PersistentQueue.PersistentQueue.NotYet'> != " + str(type(exc))
     try:
         raise PersistentQueue.TriQueue.Syncing
     except Exception, exc:
