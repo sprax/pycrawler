@@ -139,6 +139,9 @@ class nameddict(dict):
         Returns a nameddict instance constructed by parsing 'line',
         which must be in the same format as created by __str__.
         """
+        assert isinstance(line, basestring), \
+            "fromstr() called with %d instead of basestring: %s" % \
+            (type(line), repr(line))
         assert cls._key_ordering is not None, \
             "fromstr() requires subclass to define _key_ordering"
         try:
@@ -149,8 +152,8 @@ class nameddict(dict):
                 (cls.DELIMITER, repr(line)))
         if not len(parts) == len(cls._key_ordering):
             raise cls.BadFormat(
-                "len(parts) = %d differs from %d\nparts: %s\n_key_ordering: %s" %
-                (len(parts), len(cls._key_ordering), parts, cls._key_ordering))
+                "error in:%s\nlen(parts) = %d differs from %d\nparts: %s\n_key_ordering: %s" %
+                (line, len(parts), len(cls._key_ordering), parts, cls._key_ordering))
         attrs = {}
         for attr_num in range(len(cls._key_ordering)):
             param = cls._key_ordering[attr_num]

@@ -30,11 +30,10 @@ import Queue as NormalQueue
 import shutil
 import LineFiles
 import traceback
-import subprocess
 import multiprocessing
-from time import time, sleep
+from time import sleep
 from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
-from PersistentQueue import PersistentQueue
+from PersistentQueue import PersistentQueue, Mutex
 
 class TriQueue:
     debug = True
@@ -49,10 +48,16 @@ class TriQueue:
         self.readyQ_path = os.path.join(data_path, "readyQ")
         self.pendingQ_path = os.path.join(data_path, "pendingQ")
         self.marshal = marshal
+        self.inQ = None
+        self.readyQ = None
+        self.pendingQ = None
         self.open_queues()
-
-        self.semaphore = multiprocessing.Semaphore()
-        self.sync_pending = multiprocessing.Semaphore()
+        self.sema_path = os.path.join(data_path, "lock_file")
+        self.semaphore = Mutex(self.sema_path)
+        self.sync_pending_sema_path = os.path.join(
+            data_path, "sync_lock_file")
+        self.sync_pending = Mutex(
+            self.sync_pending_sema_path)
 
     def open_queues(self):
         """
@@ -66,12 +71,14 @@ class TriQueue:
         """
         Close all three queues that we have openned.
         """
+        self.semaphore.acquire()
         self.inQ.close()
         self.readyQ.close()
         self.pendingQ.close()
+        self.semaphore.release()
 
     def put(self, data, block=True):
-        acquired = self.semaphore.acquire(block=False)
+        acquired = self.semaphore.acquire(block)
         if not acquired:
             raise self.Blocked
         self.inQ.put(data)
@@ -80,7 +87,7 @@ class TriQueue:
     def put_nowait(self, data):
         return self.put(data, block=False)
 
-    def get(self, block=True, maxP=None):
+    def get(self, block=True, maxP=None, maybe=False):
         """
         Get a data item from the readyQ and store a copy in pendingQ
 
@@ -88,30 +95,76 @@ class TriQueue:
         instead of Queue.Empty.
 
         If maxP is a float, then readyQ might raise NotYet
+        
+        If 'maybe' is True, this leaves the semaphore acquired and
+        does not put data into pendingQ.  The caller must call
+        reject() or keep() before any other calls to this TriQueue.
         """
-        acquired = self.semaphore.acquire(block=block)
+        acquired = self.semaphore.acquire(block)
         if not acquired:
             raise self.Blocked
+        maybe_got_data = False
         try:
             data = self.readyQ.get(maxP=maxP)
-            self.pendingQ.put(data)
+            if maybe:
+                maybe_got_data = True
+                self._maybe_data = data
+            else:
+                self.pendingQ.put(data)
             return data
         except NormalQueue.Empty:
-            if self.sync_pending.get_value() is 0:
+            if not self.sync_pending.available():
                 raise self.Syncing
             else:
                 self.readyQ.make_singleprocess_safe()
+            #syslog("in the mix: %d %d %d %s" % (len(self.inQ), len(self.readyQ), len(self.pendingQ), self.data_path))
             if (len(self.inQ) + len(self.pendingQ)) > 0:
                 raise self.ReadyToSync
             else:
                 raise NormalQueue.Empty
         finally:
-            self.semaphore.release()
+            if not maybe_got_data:
+                self.semaphore.release()
 
     def get_nowait(self):
+        """
+        Calls get with block=False
+        """
         return self.get(block=False)
 
-    def sync(self, block=False):
+    def get_maybe(self, block=True, maxP=None):
+        """
+        Calls get with maybe=True
+        """
+        return self.get(block=block, maxP=maxP, maybe=True)
+
+    def keep(self):
+        """
+        Called after calling get_maybe (or get with maybe flag set).
+
+        Puts the _maybe_data into pendingQ.
+
+        Releases the semaphore.
+        """
+        self.pendingQ.put(self._maybe_data)
+        self._maybe_data = None
+        self.semaphore.release()
+
+    def reject(self):
+        """
+        Called after calling get_maybe (or get with maybe flag set).
+
+        Puts the _maybe_data back into the readyQ, but at the end,
+        thus destroying its heap-like nature.  This allows other
+        records in the readyQ to get checked.
+
+        Releases the semaphore.
+        """
+        self.readyQ.put(self._maybe_data)
+        self._maybe_data = None
+        self.semaphore.release()
+
+    def sync(self, block=True):
         """
         First, move the three queues out of the way and setup new
         (empty) queues to continue handling gets and puts.
@@ -122,7 +175,7 @@ class TriQueue:
         acquired = self.semaphore.acquire(block)
         if not acquired:
             raise self.Blocked
-        acquired = self.sync_pending.acquire(block=False)
+        acquired = self.sync_pending.acquire(block)
         if not acquired:
             # sync is already running
             self.semaphore.release()
@@ -131,17 +184,22 @@ class TriQueue:
         # This is inside the semaphore.acquire, so no other process
         # can get confused about whether we're syncing.
         self.sync_pending.release()
+        assert self.sync_pending.fh is None
+        self.sync_pending.acquire()
+        self.sync_pending.release()
+
         # the semaphore is acquired, so put/get will block while we
         # rename those directories and setup new versions of queues
         self.inQ.close()
         self.readyQ.close()
         self.pendingQ.close()
-        inQ_syncing = self.inQ_path + ".syncing"
-        readyQ_syncing = self.readyQ_path + ".syncing"
-        pendingQ_syncing = self.pendingQ_path + ".syncing"
+        inQ_syncing = self.inQ_path + "_syncing"
+        readyQ_syncing = self.readyQ_path + "_syncing"
+        pendingQ_syncing = self.pendingQ_path + "_syncing"
         shutil.move(self.inQ_path, inQ_syncing)
         shutil.move(self.readyQ_path, readyQ_syncing)
         shutil.move(self.pendingQ_path, pendingQ_syncing)
+        #map(lambda line: syslog(LOG_NOTICE, line), os.listdir(self.data_path))
         self.open_queues()
         self.readyQ.make_multiprocess_safe()
 
@@ -149,10 +207,11 @@ class TriQueue:
         # sort and merge all the files.  The child process acquires
         # the sync_pending semaphore, which we checked above.
         class Merger(multiprocessing.Process):
+            "manages the merge"
             name = "MergerProcess"
             marshal = self.marshal
             paths = [inQ_syncing, readyQ_syncing, pendingQ_syncing]
-            sync_pending = self.sync_pending
+            sync_pending_sema_path = self.sync_pending_sema_path
             accumulator = self.accumulator
             readyQ = self.readyQ
             debug = self.debug
@@ -162,10 +221,13 @@ class TriQueue:
                     openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
                     if not self.debug:
                         setlogmask(LOG_UPTO(LOG_INFO))
+                    self.sync_pending = Mutex(self.sync_pending_sema_path)
                     self.sync_pending.acquire()
                     pq = PersistentQueue(self.paths[0], marshal=self.marshal)
                     queues = [PersistentQueue(self.paths[1], marshal=self.marshal),
                               PersistentQueue(self.paths[2], marshal=self.marshal)] 
+                    # try/except the sort, so if it fails we can avoid
+                    # removing directories for forensic analysis
                     failure = True
                     try:
                         retval = pq.sort(merge_from=queues, merge_to=self.readyQ)
@@ -174,7 +236,9 @@ class TriQueue:
                         pq.close()
                         failure = False
                     except Exception, exc:
-                        syslog(traceback.format_exc(exc))
+                        # send full traceback to syslog in readable form
+                        map(lambda line: syslog(LOG_NOTICE, line), 
+                            traceback.format_exc(exc).splitlines())
                     if failure:
                         syslog(LOG_NOTICE, "Failed merge of " + str(self.paths))
                     else:
@@ -210,20 +274,23 @@ class TriQueue:
         Starts a child process that syncs this TriQueue and then
         closes it.
         """
-        class SyncAndClose(Process):
+        class SyncAndClose(multiprocessing.Process):
             debug = True
             name = "SyncAndClose: %s" % self.data_path
             TriQueue = self
             def run(self):
+                "calls sync and waits for it to finish before closing"
                 try:
-                    self.prepare_process()
+                    openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
                     self.TriQueue.sync()
-                    while self.sync_pending.get_value() is 0:
+                    while not self.TriQueue.sync_pending.available():
                         sleep(2)
                     self.TriQueue.close()
                     syslog(LOG_DEBUG, "Done syncing and closing")
                 except Exception, exc:
-                    multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
+                    # send full traceback to syslog in readable form
+                    map(lambda line: syslog(LOG_NOTICE, line), 
+                        traceback.format_exc(exc).splitlines())
         sac = SyncAndClose()
         sac.start()
 

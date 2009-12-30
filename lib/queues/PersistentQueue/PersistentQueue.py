@@ -13,20 +13,77 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 import os
-import sys
 import copy
 import gzip
+import fcntl
 import Queue as NormalQueue
 import cPickle as pickle
 #import marshal
 import traceback
 import subprocess
-import multiprocessing
-from time import time, sleep
-from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
+from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 
 # Filename used for index files, must not contain numbers
 INDEX_FILENAME = "index"
+
+class Mutex(object):
+    """
+    Class wrapping around a file that is used as a mutex.
+    """
+    def __init__(self, lock_path):
+        """
+        If lock_path exists, then this simply points to it without
+        attempting to acquire a lock.
+
+        If lock_path does not exist, this creates it and leaves it
+        unlocked.
+        """
+        self.lock_path = lock_path
+        self.fh = None
+        if os.path.exists(lock_path):
+            assert os.path.isfile(lock_path), \
+                "lock_path must be a regular file"
+        else:
+            parent = os.path.dirname(lock_path)
+            if not os.path.exists(parent):
+                os.makedirs(parent)
+            # create the file
+            self.acquire(False)
+            self.release()
+
+    def acquire(self, block=True):
+        """
+        Open the file handle, and get an exclusive lock.  Returns True
+        when acquired.
+
+        If 'block' is False, then return False if the lock was not
+        acquired.  Otherwise, returns True.
+        """
+        self.fd = os.open(self.lock_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        self.fh = os.fdopen(self.fd, "a")
+        lock_flags = fcntl.LOCK_EX
+        if not block:
+            lock_flags |= fcntl.LOCK_NB
+        try:
+            fcntl.flock(self.fh, lock_flags)
+        except IOError, e:
+            if e[0] == 11:
+                return False
+            raise
+        return True
+
+    def release(self):
+        "release lock and close file handle"
+        if self.fh is not None:
+            fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
+            self.fh.close()
+            self.fh = None
+
+    def available(self):
+        "returns bool whether mutex is not locked"
+        if self.fh is None: 
+            return True
+        return False
 
 class Writer:
     """
@@ -127,7 +184,8 @@ class PersistentQueue:
         self.index_file = os.path.join(data_path, INDEX_FILENAME)
         self.temp_path = os.path.join(data_path, "tempfile")
         self.data_path = os.path.join(data_path, "data")
-        self.semaphore = multiprocessing.Semaphore()
+        self.sema_path = os.path.join(data_path, "lock_file")
+        self.semaphore = Mutex(self.sema_path)
         self.head = None
         self.tail = None
         self.put_cache = None
@@ -145,15 +203,21 @@ class PersistentQueue:
         """
         if not os.path.exists(self.data_path):
             os.makedirs(self.data_path)
-        # if the index is there, use it
+        # start in-memory pointers from scratch
+        self.head, self.tail = 0, 1
+        # if the index is there, reset them
         if os.path.exists(self.index_file):
-            index_file = open(self.index_file)
-            self.head, self.tail = map(lambda x: int(x),
-                                       index_file.read().split(" "))
-            index_file.close()
-        else:
-            # otherwise, start from scratch
-            self.head, self.tail = 0, 1
+            try:
+                index_file = open(self.index_file)
+                index_data = index_file.read()
+                index_file.close()
+                # last step in try/except sets the pointers
+                self.head, self.tail = \
+                    map(lambda x: int(x), index_data.split(" "))
+            except Exception, exc:
+                # send full traceback to syslog in readable form
+                map(lambda line: syslog(LOG_NOTICE, line), 
+                    traceback.format_exc(exc).splitlines())
         # now setup in-memory caches
         def _load_cache(cache_name, num):
             """
