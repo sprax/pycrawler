@@ -21,6 +21,7 @@ import cPickle as pickle
 #import marshal
 import traceback
 import subprocess
+from time import time
 from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 
 # Filename used for index files, must not contain numbers
@@ -92,6 +93,15 @@ class Mutex(object):
         if self._fh is None: 
             return True
         return False
+
+class FakeMutex:
+    """
+    Has acquired and release, but they do nothing.
+    """
+    def acquire(self):
+        return
+    def release(self):
+        return
 
 class Writer:
     """
@@ -178,7 +188,7 @@ class PersistentQueue:
     """
     Provides a Queue interface to a set of flat files stored on disk.
     """
-    def __init__(self, data_path, cache_size=512, marshal=pickle, compress=False):
+    def __init__(self, data_path, cache_size=512, marshal=pickle, compress=False, unlocked=False):
         """
         Create a persistent FIFO queue named by the 'data_path' argument.
 
@@ -195,8 +205,12 @@ class PersistentQueue:
         self._index_file = os.path.join(data_path, INDEX_FILENAME)
         self._temp_path = os.path.join(data_path, "tempfile")
         self._data_path = os.path.join(data_path, "data")
-        self._mutex_path = os.path.join(data_path, "lock_file")
-        self._mutex = Mutex(self._mutex_path)
+        if unlocked:
+            self._mutex_path = None
+            self._mutex = FakeMutex()
+        else:
+            self._mutex_path = os.path.join(data_path, "lock_file")
+            self._mutex = Mutex(self._mutex_path)
         self._head = None
         self._tail = None
         self._put_cache = None
@@ -401,6 +415,11 @@ class PersistentQueue:
         merge_to can be a different PersistentQueue instance into
         which to put all records (instead of into this queue).
         merge_to can be in the list of merge_from.
+
+        If self._marshal has an 'accumulator' method, then it will be
+        applied to every item passing through the sort.  Whenever the
+        second return value is not None, then it is written to the
+        newly merged queue.
         """
         if not (hasattr(self._marshal, "_sort_key") \
                     and self._marshal._sort_key is not None):
@@ -498,20 +517,35 @@ class PersistentQueue:
                 pq._tail = 1
             syslog(LOG_DEBUG, "re-populating FIFO")
             if merge_to in merge_from:
-                writer = Writer(self, 0)
+                # we acquired mutex, and count is zero
+                writer = Writer(merge_to, 0)
             elif merge_to is not None:
+                # have it acquire mutex and compute count
                 writer = merge_to.get_writer()
             else:
+                # we acquired mutex, and count is zero
                 writer = Writer(self, 0)
-            # read in sorted_file and put into newly initialized queue
+            # read in sorted_file and writelines with Writer
             sorted_file = open(sorted_path, "r")
-            c = 0
+            #c = 0
+            if hasattr(self._marshal, "accumulator") and \
+                    self._marshal.accumulator is not None:
+                accumulator = lambda x, y: self._marshal.accumulator(x, y)
+            else:
+                accumulator = None
+            acc_state = None
             while True:
                 line = sorted_file.readline()
                 if not line: break
                 if not line.strip(): continue
-                writer.writeline(line)
-                c += 1
+                if accumulator is None:
+                    writer.writeline(line)
+                else:
+                    # see description of accumulators in nameddict
+                    acc_state, line = accumulator(acc_state, line)
+                    if line is not None:
+                        writer.writeline(line)
+                #c += 1
             #print "called writeline %d times" % c
             writer.close()
             # clean up the sorted file
@@ -579,6 +613,7 @@ class PersistentQueue:
         record's priority is greater than maxP.
         """
         self._mutex.acquire()
+        #start = time()
         try:
             if self._multiprocessing:
                 # load caches from disk
@@ -600,6 +635,8 @@ class PersistentQueue:
                 syslog("not yet: " + str(rec))
                 raise self.NotYet
         finally:
+            #end = time()
+            #print "%.3f seconds to do internal getting" % (end - start)
             if self._multiprocessing:
                 self._close()
             self._mutex.release()

@@ -22,6 +22,22 @@ from optparse import OptionParser
 sys.path.insert(0, os.getcwd())
 import PersistentQueue
 
+class MyND1(PersistentQueue.nameddict):
+    _defaults = {"a": None}
+    _key_ordering = ["a"]
+    _val_types = [float]
+    _sort_key = 0
+
+class MyND2(PersistentQueue.nameddict):
+    _defaults = {"a": None}
+    _key_ordering = ["a"]
+    _val_types = [float]
+    _sort_key = 0
+    @classmethod
+    def accumulator(cls, acc_state, line):
+        "do nothing"
+        return None, line
+
 def test_mutex():
     print "Testing mutex..."
     sema1 = PersistentQueue.Mutex("foo/test_mutex")
@@ -44,16 +60,13 @@ def test_mutex():
     os.rmdir("foo")
     print "\tpassed!"
 
-def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
+def speed_test(data_path, ELEMENTS=50000, p=None, compress=True):
     """run speed tests and average speeds of put and get"""
     if p is None:
-        if lines:
-            p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
-        else:
-            p = PersistentQueue.PersistentQueue(data_path, 10, compress=compress)
+        p = PersistentQueue.PersistentQueue(data_path, 10, MyND1, compress=compress)
     start = time()
     for a in range(ELEMENTS):
-        p.put(str(a))
+        p.put(MyND1({"a": a}))
     p.sync()
     end = time()
     elapsed = start - end 
@@ -70,11 +83,13 @@ def speed_test(data_path, ELEMENTS=50000, p=None, lines=False, compress=True):
 def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
     """run basic tests"""
     if p is None:
-        p = PersistentQueue.PersistentQueue(data_path, 10, compress=compress)
+        p = PersistentQueue.PersistentQueue(
+            data_path, 10, compress=compress,
+            marshal=MyND1)
     print "Enqueueing %d items, cache size = %d" % \
         (ELEMENTS, p._cache_size)
     for a in range(ELEMENTS):
-        p.put(str(a))
+        p.put(MyND1({"a": a}))
     p.sync()
     assert ELEMENTS == len(p), \
         "Put %d elements in, but lost some?" % ELEMENTS
@@ -88,9 +103,11 @@ def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
     for a in range(ELEMENTS/2):
         out.append(p.get())
     print "Queue length (using __len__):", len(p)
-    assert out == [str(x) for x in range(ELEMENTS)], \
+    out_str = [x.a for x in out]
+    answer_str = [float(x) for x in range(ELEMENTS)]
+    assert out_str == answer_str, \
         "Got out different list than put in: \n%s\n%s" % \
-        (out, range(ELEMENTS))
+        (out_str, answer_str)
     p.sync()
     assert len(p) == 0, "failed to have an empty queue after removing all items"
     try:
@@ -100,32 +117,12 @@ def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
         pass
     p.close()
 
-def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
-    """run basic tests"""
-    if p is None:
-        p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
-    print "Enqueueing %d items, cache size = %d" % \
-        (ELEMENTS, p._cache_size)
-    for a in range(ELEMENTS):
-        p.put(str(a))
-    p.sync()
-    print "Queue length (using __len__):", len(p)
-    print "Dequeueing %d items" % (ELEMENTS/2)
-    for a in range(ELEMENTS/2):
-        p.get()
-    print "Queue length (using __len__):", len(p)
-    print "Dequeueing %d items" % (ELEMENTS/2)
-    for a in range(ELEMENTS/2):
-        p.get()
-    print "Queue length (using __len__):", len(p)
-    p.sync()
-    p.close()
-
 def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=False):
     """run sort tests"""
     print "Running test on sorting with %d elements" % ELEMENTS
     if p is None:
-        p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)        
+        # use the do nothing accumulator
+        p = PersistentQueue.PersistentQueue(data_path, 10, MyND2, compress=compress)        
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -136,7 +133,7 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
         randomized.append(element)
     # put it in the queue
     for a in randomized:
-        p.put([str(a)])
+        p.put(MyND1({"a": a}))
     print "put %d elements into the queue in random order" % len(randomized)
     # sync but do not close
     p.sync()
@@ -153,7 +150,7 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     answer = range(ELEMENTS)
     vals = []
     for a in range(len(answer)):
-        vals.append(int(p.get()[0]))
+        vals.append(int(p.get().a))
     assert len(vals) == len(answer), \
         "Got back different number of results" + \
         "(%d) than expected (%d)" % (len(vals), len(answer))
@@ -175,11 +172,12 @@ def merge_test(data_path, ELEMENTS=1000):
     num_queues = 4
     print "Running test on merging with %d elements from %d queues" \
         % (ELEMENTS, num_queues)
-    p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles)
+    # use the do nothing accumulator
+    p = PersistentQueue.PersistentQueue(data_path, 10, MyND2)
     queues = [p]
     for i in range(num_queues - 1):
         queues.append(
-            PersistentQueue.PersistentQueue(data_path + "/%d" % i, 10, PersistentQueue.LineFiles))
+            PersistentQueue.PersistentQueue(data_path + "/%d" % i, 10, MyND1))
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -192,7 +190,7 @@ def merge_test(data_path, ELEMENTS=1000):
     for a in randomized:
         # pick a queue at random
         pq = queues[int(random.random() * len(queues))]
-        pq.put([str(a)])
+        p.put(MyND1({"a": a}))
     # sync but do not close
     for pq in queues:
         pq.sync()
@@ -206,7 +204,7 @@ def merge_test(data_path, ELEMENTS=1000):
     answer = range(ELEMENTS)
     vals = []
     for a in range(len(answer)):
-        vals.append(int(p.get()[0]))
+        vals.append(int(p.get().a))
     assert vals == answer, "Incorrectly sorted result:\n%s" % vals
     for i in range(len(vals)-1):
         assert vals[i] <= vals[i+1], "Incorrectly sorted result:\n%s" % vals
@@ -218,11 +216,12 @@ def merge_test(data_path, ELEMENTS=1000):
         pq.close()
 
 class PersistentQueueContainer(multiprocessing.Process):
-    def __init__(self, id, go, data_path):
+    def __init__(self, id, go, data_path, marshal):
         self.name = id
         multiprocessing.Process.__init__(self, name=self.name)
         self.go = go or multiprocessing.Event()
         self.data_path = data_path
+        self.marshal = marshal
         if not os.path.exists(self.data_path):
             os.makedirs(self.data_path)
         self._go = multiprocessing.Event()
@@ -236,7 +235,8 @@ class PersistentQueueContainer(multiprocessing.Process):
         multiprocessing.Process
         """
         syslog("Starting")
-        self.queue = PersistentQueue.PersistentQueue(self.data_path, compress=True)
+        self.queue = PersistentQueue.PersistentQueue(
+            self.data_path, compress=True, marshal=self.marshal)
         while self.go.is_set() and self._go.is_set():
             sleep(1)
         syslog("syncing before closing")
@@ -249,14 +249,14 @@ class PersistentQueueContainer(multiprocessing.Process):
         self.go.clear()
 
 def process_test(data_path, ELEMENTS):
-    pqc = PersistentQueueContainer(data_path, None, data_path)
+    pqc = PersistentQueueContainer(data_path, None, data_path, MyND1)
     pqc.start()
     sleep(1)
     speed_test(data_path, ELEMENTS, p=pqc.queue)
     basic_test(data_path, ELEMENTS, p=pqc.queue)
     pqc.close()
 
-def validate(data_path, compress=False, marshal=PersistentQueue.LineFiles):
+def validate(data_path, compress=False, marshal=MyND1):
     """
     Prints diagnostics about the queue found at data_path
     """
@@ -274,10 +274,10 @@ def triqueue_test(data_path, ELEMENTS=1000):
     syslog("starting triqueue_test")
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
-    tq = PersistentQueue.TriQueue(data_path)
+    tq = PersistentQueue.TriQueue(data_path, marshal=MyND1)
     for i in range(1000):
-        v = str(random.random())
-        tq.put([v])
+        v = random.random()
+        tq.put(MyND1({"a": v}))
     print "inQ has\t\t%d" % len(tq._inQ)
     print "readyQ has\t%d" % len(tq._readyQ)
     print "pendingQ has\t%d" % len(tq._pendingQ)
@@ -285,50 +285,55 @@ def triqueue_test(data_path, ELEMENTS=1000):
     print "Merger.is_alive() --> " + str(merger.is_alive())
     print "inQ has\t\t%d" % len(tq._inQ)
     print "readyQ has\t%d" % len(tq._readyQ)
-    print "pendingQ has\t%d" % len(tq._pendingQ)
+    log("pendingQ has\t%d" % len(tq._pendingQ))
     i = 0
+    tq.acquire()
     while i < 500:
         try:
-            val = float(tq.get_nowait()[0])
-            #print "Got a result: %s" % val
-            sys.stdout.flush()
+            #start = time()
+            val = tq.get_nowait()
+            #end = time()
+            #log("%.3f seconds per get_nowait" % (end - start))
+            val = val.a
+            #log("Got a result: %s" % val)
             i += 1
         except PersistentQueue.TriQueue.Blocked:
-            print "Waiting for PersistentQueue.TriQueue to unblock, Merger.is_alive() --> " + str(merger.is_alive())
+            log("Waiting for PersistentQueue.TriQueue to unblock, Merger.is_alive() --> " + str(merger.is_alive()))
             sleep(1)
         except Queue.Empty:
-            print "Waiting for results to appear in queue"
+            log("Waiting for results to appear in queue")
             sleep(1)
         except PersistentQueue.TriQueue.Syncing:
-            print "triqueue_test: Waiting for merged results, Merger.is_alive() --> " + str(merger.is_alive())
+            log("triqueue_test: Waiting for merged results, Merger.is_alive() --> " + str(merger.is_alive()))
             sleep(1)
-    print "Done getting results.  Now closing."
+    log("Done getting results.  Now closing.")
+    tq.release()
     tq.close()
-    print "Test complete."
+    log("Test complete.")
 
 def triqueue_sort_test(data_path, ELEMENTS=1000):
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
-    tq = PersistentQueue.TriQueue(data_path)
+    tq = PersistentQueue.TriQueue(data_path, marshal=MyND1)
     for i in range(1000):
         v = [str(random.random()), str(random.random())]
-        tq.put(v)
+        tq.put(MyND1({"a": v}))
     merger = tq.sync()
     i = 0
     while i < 500:
         try:
-            val = float(tq.get_nowait()[0][0])
-            #print "Got a result: %s" % val
-            sys.stdout.flush()
+            val = tq.get_nowait()
+            val = val.a
+            #log("Got a result: %s" % val)
             i += 1
         except PersistentQueue.TriQueue.Blocked:
-            print "Waiting for PersistentQueue.TriQueue to unblock"
+            log("Waiting for PersistentQueue.TriQueue to unblock")
             sleep(1)
         except Queue.Empty:
-            print "Waiting for results to appear in queue"
+            log("Waiting for results to appear in queue")
             sleep(1)
         except PersistentQueue.TriQueue.Syncing:
-            print "triqueue_sort_test: Waiting for merged results"
+            log("triqueue_sort_test: Waiting for merged results")
             sleep(1)
     print "Done getting results.  Now closing."
     tq.close()
@@ -357,6 +362,10 @@ def exceptions_tests():
             "Failed to raise the correct exception: <class 'PersistentQueue.TriQueue.ReadyToSync'> != " + str(type(exc))
     print "Raised all exceptions correctly"
 
+def log(msg):
+    print msg
+    sys.stdout.flush()
+
 def rmdir(dir):
     if os.path.exists(dir):
         try:
@@ -373,7 +382,6 @@ if __name__ == "__main__":
     parser.add_option("--basic", dest="basic", default=False, action="store_true", help="run basic test")
     parser.add_option("--speed", dest="speed", default=False, action="store_true", help="run speed test")
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
-    parser.add_option("--lines", dest="lines", default=False, action="store_true", help="run test of PersistentQueue.LineFiles")
     parser.add_option("--triqueue", dest="triqueue", default=False, action="store_true", help="run the PersistentQueue.TriQueue tests")
     parser.add_option("--sort", dest="sort", default=False, action="store_true", help="run test of sorting")
     parser.add_option("--merge", dest="merge", default=False, action="store_true", help="run test of sorted merging of multiple queues")
@@ -394,15 +402,16 @@ if __name__ == "__main__":
         speed_test(options.dir, options.num)
     elif options.process:
         process_test(options.dir, options.num)
-    elif options.lines:
-        lines_test(options.dir, options.num)
-        rmdir(options.dir)
-        speed_test(options.dir, options.num, lines=True)
     elif options.sort:
+        rmdir(options.dir)
         sort_test(options.dir, options.num, compress=False, compress_temps=False)
+        rmdir(options.dir)
         sort_test(options.dir, options.num, compress=False, compress_temps=True)
+        rmdir(options.dir)
         sort_test(options.dir, options.num, compress=True, compress_temps=False)
+        rmdir(options.dir)
         sort_test(options.dir, options.num, compress=True, compress_temps=True)
+        rmdir(options.dir)
     elif options.merge:
         merge_test(options.dir, options.num)
     elif options.triqueue:
@@ -417,8 +426,6 @@ if __name__ == "__main__":
         rmdir(options.dir)        
         process_test(options.dir, options.num)
         rmdir(options.dir)
-        lines_test(options.dir, options.num)
-        rmdir(options.dir)
         sort_test(options.dir, options.num)
         rmdir(options.dir)
         merge_test(options.dir, options.num)
@@ -429,7 +436,3 @@ if __name__ == "__main__":
         
     if not options.keep:
         rmdir(options.dir)
-
-
-        
-

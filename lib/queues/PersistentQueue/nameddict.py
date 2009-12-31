@@ -226,6 +226,40 @@ class nameddict(dict):
         return self.get_sort_val() != other.get_sort_val()
 
     @classmethod
+    def accumulator(cls, acc_state, line):
+        """
+        This example accumulator simply de-duplicates items.  
+        
+        Derived classes can (and should) overwrite this with a
+        function that accumulates related records after a sort of
+        their serialized form and produces a single serialized
+        instance.  
+
+        accumulator functions take two arguments and return to values:
+       
+            * first argument is previous first return value, or None
+              for the first pass of accumulation.
+
+            * second argument is the next item to accumulate
+
+            * first return value is current state of accumulation
+
+            * second return value is None unless the accumulator is
+              done accumulating items into a single item
+        """
+        current = cls.loads(line)
+        if acc_state == None:
+            # first pass accumulation
+            return current, None
+        if current == acc_state:
+            # same as previous, so ignore this one:
+            return acc_state, None
+        else:
+            # new one! give back a serialized form as second value,
+            # and 'current' becomes the acc_state:
+            return current, cls.dumps(acc_state)
+
+    @classmethod
     def dumps(cls, items):
         """
         'items' must be a list of instances of nameddict or properly

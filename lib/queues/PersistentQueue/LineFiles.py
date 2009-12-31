@@ -47,8 +47,15 @@ def default_compare(x, y, get_sort_val=get_sort_val):
 
 def dump(items, output, compare=default_compare):
     """
-    'items' must be a list.  This serializes each item, and writes it
-    to the open 'output' file object.
+    Calls 'dumps' on 'items' and writes the result to the open
+    'output' file object.
+    """
+    output.write(dumps(items, default_compare))
+
+def dumps(items, compare=default_compare):
+    """
+    'items' must be a list.  This serializes each item, and returns a
+    string of these items joined by newlines.
 
     If 'compare' is not None, then 'items' is sorted using 'compare'
     as the comparison function.  Default is the module method
@@ -56,14 +63,19 @@ def dump(items, output, compare=default_compare):
 
     Each item is treated as a separate entity to serialize.  Entities
     of type list or tuple are serialized by joining with this module's
-    DELIMITER attribute.
+    DELIMITER attribute.  Other entity types are serialized by calling
+    repr().
     """
     if compare is not None:
         items.sort(compare)
+    ret = []
     for line in items:
         if isinstance(line, (tuple, list)):
             line = DELIMITER.join(line)
-        output.write(line + "\n")
+        else:
+            line = repr(line)
+        ret.append(line)
+    return "\n".join(ret)
 
 def load(input):
     """
@@ -76,6 +88,20 @@ def load(input):
     ret = []
     for line in input.readlines():
         line = line.strip()
+        if line:
+            ret.append(make_record(line))
+    return ret
+
+def loads(input):
+    """
+    Like 'load' but treats 'input' as a string, which it splits into
+    lines.  Treats each line as a separate entity to deserialize using
+    LineFiles.make_record()
+
+    Returns a list of these entities.
+    """
+    ret = []
+    for line in input.splitlines():
         if line:
             ret.append(make_record(line))
     return ret

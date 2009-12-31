@@ -28,11 +28,11 @@ __maintainer__ = "John R. Frank"
 import os
 import Queue as NormalQueue
 import shutil
-import LineFiles
 import traceback
 import multiprocessing
-from time import sleep
+from time import time, sleep
 from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from nameddict import nameddict
 from PersistentQueue import PersistentQueue, Mutex
 
 class TriQueue:
@@ -42,7 +42,7 @@ class TriQueue:
     class Syncing(Exception): pass
     class Blocked(Exception): pass
 
-    def __init__(self, data_path, marshal=LineFiles):
+    def __init__(self, data_path, marshal=nameddict):
         self._data_path = data_path
         self._inQ_path = os.path.join(data_path, "_inQ")
         self._readyQ_path = os.path.join(data_path, "_readyQ")
@@ -52,6 +52,7 @@ class TriQueue:
         self._readyQ = None
         self._pendingQ = None
         self._open_queues()
+        self._acquired = False
         self._mutex_path = os.path.join(data_path, "lock_file")
         self._mutex = Mutex(self._mutex_path)
         self._sync_pending_mutex_path = os.path.join(
@@ -63,9 +64,9 @@ class TriQueue:
         """
         Open the three queues
         """
-        self._inQ = PersistentQueue(self._inQ_path, marshal=self._marshal)
-        self._readyQ = PersistentQueue(self._readyQ_path, marshal=self._marshal)
-        self._pendingQ = PersistentQueue(self._pendingQ_path, marshal=self._marshal)
+        self._inQ = PersistentQueue(self._inQ_path, marshal=self._marshal, unlocked=True)
+        self._readyQ = PersistentQueue(self._readyQ_path, marshal=self._marshal, unlocked=True)
+        self._pendingQ = PersistentQueue(self._pendingQ_path, marshal=self._marshal, unlocked=True)
         
     def close(self):
         """
@@ -77,12 +78,27 @@ class TriQueue:
         self._pendingQ.close()
         self._mutex.release()
 
-    def put(self, data, block=True):
+    def acquire(self, block=True):
+        "acquire mutex for faster get/put"
         acquired = self._mutex.acquire(block)
         if not acquired:
             raise self.Blocked
-        self._inQ.put(data)
+        self._acquired = True
+        self._mutex.acquire()
+
+    def release(self):
+        "releases mutex"
         self._mutex.release()
+        self._acquired = False
+
+    def put(self, data, block=True):
+        if not self._acquired:
+            acquired = self._mutex.acquire(block)
+            if not acquired:
+                raise self.Blocked
+        self._inQ.put(data)
+        if  not self._acquired:
+            self._mutex.release()
 
     def put_nowait(self, data):
         return self.put(data, block=False)
@@ -96,11 +112,16 @@ class TriQueue:
 
         If maxP is a float, then _readyQ might raise NotYet
         """
-        acquired = self._mutex.acquire(block)
-        if not acquired:
-            raise self.Blocked
+        if not self._acquired:
+            acquired = self._mutex.acquire(block)
+            if not acquired:
+                raise self.Blocked
         try:
+            #start = time()
             data = self._readyQ.get(maxP=maxP)
+            #end = time()
+            #print "%.3f seconds per _readyQ.get" % (end - start)
+            self._pendingQ.put(data)
             return data
         except NormalQueue.Empty:
             if not self._sync_pending.available():
@@ -113,7 +134,8 @@ class TriQueue:
             else:
                 raise NormalQueue.Empty
         finally:
-            self._mutex.release()
+            if self._acquired:
+                self._mutex.release()
 
     def get_nowait(self):
         """
@@ -167,7 +189,6 @@ class TriQueue:
             _marshal = self._marshal
             _paths = [_inQ_syncing, _readyQ_syncing, _pendingQ_syncing]
             _sync_pending_mutex_path = self._sync_pending_mutex_path
-            accumulator = self.accumulator
             _readyQ = self._readyQ
             _debug = self._debug
             def run(self):
@@ -181,7 +202,12 @@ class TriQueue:
                     pq = PersistentQueue(self._paths[0], marshal=self._marshal)
                     queues = [PersistentQueue(self._paths[1], marshal=self._marshal),
                               PersistentQueue(self._paths[2], marshal=self._marshal)] 
-                    retval = pq.sort(merge_from=queues, merge_to=self._readyQ)
+                    start = time()
+                    retval = pq.sort(
+                        merge_from=queues, 
+                        merge_to=self._readyQ)
+                    end = time()
+                    syslog(LOG_INFO, "sort finished in %.1f seconds" % (end - start))
                     assert retval is True, \
                         "Should get True from sort, instead: " + str(retval)
                     # if sort fails, the following will not happen
@@ -230,18 +256,3 @@ class TriQueue:
                         traceback.format_exc(exc).splitlines())
         sac = SyncAndClose()
         sac.start()
-
-    def accumulator(self, line, previous):
-        """
-        This is an example accumulator that de-duplicates lines that
-        have the same third character.
-        """
-        parts = line.split("")
-        prev_parts = previous.split("")
-        if parts[3] != prev_parts[3]:
-            # we got a new one, so return the line as 'next' so we get
-            # it as 'previous' in the upcoming iteration
-            return line, previous
-        else:
-            # keep the first one that had a distinct third part
-            return None, previous
