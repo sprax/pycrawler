@@ -92,16 +92,16 @@ class Writer:
 
         * closed the queue
 
-        * acquired the semaphore, which can be passed into this
+        * acquired the mutex, which can be passed into this
           function to release whenever writer.close() is called.
-          If the semaphore is passed in, then calling
+          If the mutex is passed in, then calling
           writer.close() will also call _open on the queue before
-          releasing the semaphore.
+          releasing the mutex.
 
         * computed 'count', which is the current number of objects
           already serialized into the file pointed to by tail
     """
-    def __init__(self, queue, count, semaphore=None):
+    def __init__(self, queue, count, mutex=None):
         """
         Initialize a file-like object for writing directly to
         the files hidden inside a PersistentQueue (specified
@@ -109,7 +109,7 @@ class Writer:
         """
         self.queue = queue
         self.count = count
-        self.semaphore = semaphore
+        self.mutex = mutex
         self.current = None
         self.open(replace=False)
 
@@ -150,14 +150,14 @@ class Writer:
 
     def close(self):
         """
-        Closes the current file and releases the semaphore.
+        Closes the current file and releases the mutex.
         """
         # we have updated queue.tail, so fix on-disk index
         self.queue._sync_index()
         self.current.close()
-        if self.semaphore is not None:
+        if self.mutex is not None:
             self.queue._open()
-            self.semaphore.release()
+            self.mutex.release()
 # end of Writer class
 
 class PersistentQueue:
@@ -184,15 +184,19 @@ class PersistentQueue:
         self.index_file = os.path.join(data_path, INDEX_FILENAME)
         self.temp_path = os.path.join(data_path, "tempfile")
         self.data_path = os.path.join(data_path, "data")
-        self.sema_path = os.path.join(data_path, "lock_file")
-        self.semaphore = Mutex(self.sema_path)
+        self.mutex_path = os.path.join(data_path, "lock_file")
+        self.mutex = Mutex(self.mutex_path)
         self.head = None
         self.tail = None
         self.put_cache = None
         self.get_cache = None
         # set by make_multiprocess_safe and make_singleprocess_safe
         self._multiprocessing = False
+        # make sure nobody else is trying to open right now, and then
+        # open for this instance.
+        self.mutex.acquire()
         self._open()
+        self.mutex.release()
 
     def _open(self):
         """
@@ -202,7 +206,14 @@ class PersistentQueue:
         sync.
         """
         if not os.path.exists(self.data_path):
-            os.makedirs(self.data_path)
+            try:
+                os.makedirs(self.data_path)
+            except OSError, exc:
+                # if it already exists
+                if exc.errno == 17:
+                    pass
+                else:
+                    raise
         # start in-memory pointers from scratch
         self.head, self.tail = 0, 1
         # if the index is there, reset them
@@ -348,7 +359,7 @@ class PersistentQueue:
         """
         Return number of items in queue.
         """
-        self.semaphore.acquire()
+        self.mutex.acquire()
         try:
             if self._multiprocessing:
                 self._open()
@@ -359,7 +370,7 @@ class PersistentQueue:
         finally:
             if self._multiprocessing:
                 self._close()
-            self.semaphore.release()
+            self.mutex.release()
 
     def sort(self, 
              compress_temps=False, 
@@ -391,7 +402,7 @@ class PersistentQueue:
             assert pq.compress == self.compress, \
                 "All merge_from queues must have same compress flag as this queue"
         for pq in queues:
-            pq.semaphore.acquire()
+            pq.mutex.acquire()
         try:
             # do what close does
             for pq in queues:
@@ -501,7 +512,7 @@ class PersistentQueue:
             for pq in queues:
                 pq._open()
             for pq in queues:
-                pq.semaphore.release()
+                pq.mutex.release()
 
     def get_writer(self):
         """
@@ -509,31 +520,31 @@ class PersistentQueue:
         methods for allowing the caller to write directly to disk
         records that have already been serialized.
         """
-        self.semaphore.acquire()
+        self.mutex.acquire()
         # in-memory put_cache has same number of records as the
         # on-disk file identified by self.tail
         count = len(self.put_cache)
         # flush to disk and close in-memory data structures, so we can
         # call _open in Writer.close()
         self._close()
-        return Writer(self, count, self.semaphore)
+        return Writer(self, count, self.mutex)
 
     def sync(self):
         """
         Synchronize memory caches to disk.
         """
-        self.semaphore.acquire()
+        self.mutex.acquire()
         try:
             self._sync()
         finally:
-            self.semaphore.release()
+            self.mutex.release()
 
     def put(self, obj):
         """
         Put the item 'obj' on the queue.
         """
         #syslog("%s doing a put of: %s" % (self.data_path, obj))
-        self.semaphore.acquire()
+        self.mutex.acquire()
         try:
             if self._multiprocessing:
                 self._open()
@@ -543,7 +554,7 @@ class PersistentQueue:
         finally:
             if self._multiprocessing:
                 self._close()
-            self.semaphore.release()
+            self.mutex.release()
 
     def get(self, maxP=None):
         """
@@ -556,7 +567,7 @@ class PersistentQueue:
         Throws NotYet exception if the queue is not empty but the next
         record's priority is greater than maxP.
         """
-        self.semaphore.acquire()
+        self.mutex.acquire()
         try:
             if self._multiprocessing:
                 # load caches from disk
@@ -580,7 +591,7 @@ class PersistentQueue:
         finally:
             if self._multiprocessing:
                 self._close()
-            self.semaphore.release()
+            self.mutex.release()
 
     def make_multiprocess_safe(self):
         """
@@ -617,25 +628,25 @@ class PersistentQueue:
         Close the queue.  Implicitly synchronizes memory caches to disk.
         No further accesses should be made through this queue instance.
         """
-        self.semaphore.acquire()
+        self.mutex.acquire()
         try:
             self._close()
         finally:
-            self.semaphore.release()
+            self.mutex.release()
 
     def transfer_to(self, other_q):
         """
         Moves all data out of this queue and into another instance of
         PersistentQueue.  This implementation just acquires the
-        semaphore and calls get until there are no more records.  A
+        mutex and calls get until there are no more records.  A
         faster implementation would move the actual files over to the
         other_q.  A better implementation might also relinquish the
-        semaphore earlier by changing the index before doing anything
+        mutex earlier by changing the index before doing anything
         with the data.
         """
         # prevent race condition where others add more to the queue
         # and never let us finish.
-        self.semaphore.acquire()
+        self.mutex.acquire()
         while True:
             try:
                 if len(self.get_cache) > 0:
@@ -649,4 +660,4 @@ class PersistentQueue:
                 other_q.put(rec)
             except NormalQueue.Empty:
                 break
-        self.semaphore.release()
+        self.mutex.release()

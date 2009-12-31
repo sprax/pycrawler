@@ -52,12 +52,12 @@ class TriQueue:
         self.readyQ = None
         self.pendingQ = None
         self.open_queues()
-        self.sema_path = os.path.join(data_path, "lock_file")
-        self.semaphore = Mutex(self.sema_path)
-        self.sync_pending_sema_path = os.path.join(
+        self.mutex_path = os.path.join(data_path, "lock_file")
+        self.mutex = Mutex(self.mutex_path)
+        self.sync_pending_mutex_path = os.path.join(
             data_path, "sync_lock_file")
         self.sync_pending = Mutex(
-            self.sync_pending_sema_path)
+            self.sync_pending_mutex_path)
 
     def open_queues(self):
         """
@@ -71,18 +71,18 @@ class TriQueue:
         """
         Close all three queues that we have openned.
         """
-        self.semaphore.acquire()
+        self.mutex.acquire()
         self.inQ.close()
         self.readyQ.close()
         self.pendingQ.close()
-        self.semaphore.release()
+        self.mutex.release()
 
     def put(self, data, block=True):
-        acquired = self.semaphore.acquire(block)
+        acquired = self.mutex.acquire(block)
         if not acquired:
             raise self.Blocked
         self.inQ.put(data)
-        self.semaphore.release()
+        self.mutex.release()
 
     def put_nowait(self, data):
         return self.put(data, block=False)
@@ -96,11 +96,11 @@ class TriQueue:
 
         If maxP is a float, then readyQ might raise NotYet
         
-        If 'maybe' is True, this leaves the semaphore acquired and
+        If 'maybe' is True, this leaves the mutex acquired and
         does not put data into pendingQ.  The caller must call
         reject() or keep() before any other calls to this TriQueue.
         """
-        acquired = self.semaphore.acquire(block)
+        acquired = self.mutex.acquire(block)
         if not acquired:
             raise self.Blocked
         maybe_got_data = False
@@ -124,7 +124,7 @@ class TriQueue:
                 raise NormalQueue.Empty
         finally:
             if not maybe_got_data:
-                self.semaphore.release()
+                self.mutex.release()
 
     def get_nowait(self):
         """
@@ -144,11 +144,11 @@ class TriQueue:
 
         Puts the _maybe_data into pendingQ.
 
-        Releases the semaphore.
+        Releases the mutex.
         """
         self.pendingQ.put(self._maybe_data)
         self._maybe_data = None
-        self.semaphore.release()
+        self.mutex.release()
 
     def reject(self):
         """
@@ -158,11 +158,11 @@ class TriQueue:
         thus destroying its heap-like nature.  This allows other
         records in the readyQ to get checked.
 
-        Releases the semaphore.
+        Releases the mutex.
         """
         self.readyQ.put(self._maybe_data)
         self._maybe_data = None
-        self.semaphore.release()
+        self.mutex.release()
 
     def sync(self, block=True):
         """
@@ -172,23 +172,23 @@ class TriQueue:
         Then, merge all data from the existing three queues and put
         the result into the new readyQ.
         """
-        acquired = self.semaphore.acquire(block)
+        acquired = self.mutex.acquire(block)
         if not acquired:
             raise self.Blocked
         acquired = self.sync_pending.acquire(block)
         if not acquired:
             # sync is already running
-            self.semaphore.release()
+            self.mutex.release()
             raise self.Syncing
         # release sync_pending so Merger child process can acquire it.
-        # This is inside the semaphore.acquire, so no other process
+        # This is inside the mutex.acquire, so no other process
         # can get confused about whether we're syncing.
         self.sync_pending.release()
         assert self.sync_pending.fh is None
         self.sync_pending.acquire()
         self.sync_pending.release()
 
-        # the semaphore is acquired, so put/get will block while we
+        # the mutex is acquired, so put/get will block while we
         # rename those directories and setup new versions of queues
         self.inQ.close()
         self.readyQ.close()
@@ -203,15 +203,15 @@ class TriQueue:
         self.open_queues()
         self.readyQ.make_multiprocess_safe()
 
-        # while still holding the semaphore, we launch a process to
+        # while still holding the mutex, we launch a process to
         # sort and merge all the files.  The child process acquires
-        # the sync_pending semaphore, which we checked above.
+        # the sync_pending mutex, which we checked above.
         class Merger(multiprocessing.Process):
             "manages the merge"
             name = "MergerProcess"
             marshal = self.marshal
             paths = [inQ_syncing, readyQ_syncing, pendingQ_syncing]
-            sync_pending_sema_path = self.sync_pending_sema_path
+            sync_pending_mutex_path = self.sync_pending_mutex_path
             accumulator = self.accumulator
             readyQ = self.readyQ
             debug = self.debug
@@ -221,7 +221,7 @@ class TriQueue:
                     openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
                     if not self.debug:
                         setlogmask(LOG_UPTO(LOG_INFO))
-                    self.sync_pending = Mutex(self.sync_pending_sema_path)
+                    self.sync_pending = Mutex(self.sync_pending_mutex_path)
                     self.sync_pending.acquire()
                     pq = PersistentQueue(self.paths[0], marshal=self.marshal)
                     queues = [PersistentQueue(self.paths[1], marshal=self.marshal),
@@ -257,7 +257,7 @@ class TriQueue:
         # end of Merger definition
         merger = Merger()
         merger.start()
-        # loop until the child process acquires its semaphore
+        # loop until the child process acquires its mutex
         while merger.is_alive():
             acquired = self.sync_pending.acquire(block=False)
             if not acquired:
@@ -265,8 +265,8 @@ class TriQueue:
             else:
                 self.sync_pending.release()
                 sleep(0.1)
-        # now release main semaphore and get back to normal operation
-        self.semaphore.release()
+        # now release main mutex and get back to normal operation
+        self.mutex.release()
         return merger
 
     def sync_and_close(self):
