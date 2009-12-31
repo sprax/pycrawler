@@ -51,7 +51,6 @@ class TriQueue:
         self.inQ = None
         self.readyQ = None
         self.pendingQ = None
-        self._maybe_data = None
         self.open_queues()
         self.mutex_path = os.path.join(data_path, "lock_file")
         self.mutex = Mutex(self.mutex_path)
@@ -88,7 +87,7 @@ class TriQueue:
     def put_nowait(self, data):
         return self.put(data, block=False)
 
-    def get(self, block=True, maxP=None, maybe=False):
+    def get(self, block=True, maxP=None):
         """
         Get a data item from the readyQ and store a copy in pendingQ
 
@@ -96,22 +95,12 @@ class TriQueue:
         instead of Queue.Empty.
 
         If maxP is a float, then readyQ might raise NotYet
-        
-        If 'maybe' is True, this leaves the mutex acquired and
-        does not put data into pendingQ.  The caller must call
-        reject() or keep() before any other calls to this TriQueue.
         """
         acquired = self.mutex.acquire(block)
         if not acquired:
             raise self.Blocked
-        maybe_got_data = False
         try:
             data = self.readyQ.get(maxP=maxP)
-            if maybe:
-                maybe_got_data = True
-                self._maybe_data = data
-            else:
-                self.pendingQ.put(data)
             return data
         except NormalQueue.Empty:
             if not self.sync_pending.available():
@@ -124,48 +113,13 @@ class TriQueue:
             else:
                 raise NormalQueue.Empty
         finally:
-            if not maybe_got_data:
-                self.mutex.release()
+            self.mutex.release()
 
     def get_nowait(self):
         """
         Calls get with block=False
         """
         return self.get(block=False)
-
-    def get_maybe(self, block=True, maxP=None):
-        """
-        Calls get with maybe=True
-        """
-        return self.get(block=block, maxP=maxP, maybe=True)
-
-    def keep(self):
-        """
-        Called after calling get_maybe (or get with maybe flag set).
-
-        Puts the _maybe_data into pendingQ.
-
-        Releases the mutex.
-        """
-        if self._maybe_data is None: return
-        self.pendingQ.put(self._maybe_data)
-        self._maybe_data = None
-        self.mutex.release()
-
-    def reject(self):
-        """
-        Called after calling get_maybe (or get with maybe flag set).
-
-        Puts the _maybe_data back into the readyQ, but at the end,
-        thus destroying its heap-like nature.  This allows other
-        records in the readyQ to get checked.
-
-        Releases the mutex.
-        """
-        if self._maybe_data is None: return
-        self.readyQ.put(self._maybe_data)
-        self._maybe_data = None
-        self.mutex.release()
 
     def sync(self, block=True):
         """
