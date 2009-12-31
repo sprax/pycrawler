@@ -46,8 +46,16 @@ class Mutex(object):
         else:
             parent = os.path.dirname(lock_path)
             if not os.path.exists(parent):
-                os.makedirs(parent)
-            # create the file
+                try:
+                    os.makedirs(parent)
+                except OSError, exc:
+                    # okay if other process has just created it
+                    if exc.errno == 17:
+                        pass
+                    else:
+                        raise
+            # create the file, but do not block, in case another
+            # process is doing this.
             self.acquire(False)
             self.release()
 
