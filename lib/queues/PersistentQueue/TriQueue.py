@@ -51,6 +51,7 @@ class TriQueue:
         self.inQ = None
         self.readyQ = None
         self.pendingQ = None
+        self._maybe_data = None
         self.open_queues()
         self.mutex_path = os.path.join(data_path, "lock_file")
         self.mutex = Mutex(self.mutex_path)
@@ -146,6 +147,7 @@ class TriQueue:
 
         Releases the mutex.
         """
+        if self._maybe_data is None: return
         self.pendingQ.put(self._maybe_data)
         self._maybe_data = None
         self.mutex.release()
@@ -160,6 +162,7 @@ class TriQueue:
 
         Releases the mutex.
         """
+        if self._maybe_data is None: return
         self.readyQ.put(self._maybe_data)
         self._maybe_data = None
         self.mutex.release()
