@@ -183,32 +183,15 @@ class TriQueue:
                     pq = PersistentQueue(self.paths[0], marshal=self.marshal)
                     queues = [PersistentQueue(self.paths[1], marshal=self.marshal),
                               PersistentQueue(self.paths[2], marshal=self.marshal)] 
-                    # try/except the sort, so if it fails we can avoid
-                    # removing directories for forensic analysis
-                    failure = True
-                    try:
-                        retval = pq.sort(merge_from=queues, merge_to=self.readyQ)
-                        assert retval is True, \
-                            "Should get True from sort, instead: " + str(retval)
-                        pq.close()
-                        failure = False
-                    except Exception, exc:
-                        # send full traceback to syslog in readable form
-                        map(lambda line: syslog(LOG_NOTICE, line), 
-                            traceback.format_exc(exc).splitlines())
-                    if failure:
-                        syslog(LOG_NOTICE, "Failed merge of " + str(self.paths))
-                    else:
-                        for path in self.paths:
-                            try:
-                                shutil.rmtree(path)
-                            except Exception, exc:
-                                # send full traceback to syslog in readable form
-                                map(lambda line: syslog(LOG_NOTICE, line), 
-                                    traceback.format_exc(exc).splitlines())
+                    retval = pq.sort(merge_from=queues, merge_to=self.readyQ)
+                    assert retval is True, \
+                        "Should get True from sort, instead: " + str(retval)
+                    # if sort fails, the following will not happen
+                    pq.close()
+                    for path in self.paths:
+                        shutil.rmtree(path)
                     self.sync_pending.release()
                 except Exception, exc:
-                    # send full traceback to syslog in readable form
                     map(lambda line: syslog(LOG_NOTICE, line), 
                         traceback.format_exc(exc).splitlines())
         # end of Merger definition
