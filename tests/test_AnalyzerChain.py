@@ -56,10 +56,10 @@ def test(with_broken_analyzer=False):
 
     if with_broken_analyzer:
         syslog(LOG_DEBUG, "adding a broken Analyzer")
-        ac.add_analyzer(2, BrokenAnalyzer, 3)
+        ac.append(BrokenAnalyzer, 3)
     syslog(LOG_DEBUG, "adding Analyzers")
-    ac.add_analyzer(1, GetLinks, 10)
-    ac.add_analyzer(3, LogInfo, 1)
+    ac.append(GetLinks, 10)
+    ac.append(LogInfo, 1)
 
     syslog(LOG_DEBUG, "Making FetchInfo")
     hostkey = "http://www.cnn.com"
@@ -82,7 +82,7 @@ def test(with_broken_analyzer=False):
 
     while True:
         actives = multiprocessing.active_children()
-        syslog(LOG_DEBUG,  "waiting for children" + str(actives))
+        syslog(LOG_DEBUG,  "waiting for children: %s" % actives)
         if len(actives) == 0: break
         sleep(1)
 
@@ -91,7 +91,10 @@ def test(with_broken_analyzer=False):
 if __name__ == "__main__":
     # run tests
     print "Starting tests"
+    sys.stdout.flush()
     test()
     print "First test passed, now trying with_broken_analyzer"
+    sys.stdout.flush()
     test(with_broken_analyzer=True)
     print "If you got here without any tracebacks or having to kill it, then the tests passed."
+    sys.stdout.flush()

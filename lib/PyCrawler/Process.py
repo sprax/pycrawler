@@ -4,6 +4,7 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
+import traceback
 import multiprocessing
 from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
@@ -44,13 +45,32 @@ class Process(multiprocessing.Process):
         syslog(LOG_DEBUG, "Stop called.")
         self.go.clear()
 
-def multi_syslog(level=LOG_DEBUG, msg=None):
-    if msg is None:
-        if type(level) is str:
+def multi_syslog(level=LOG_DEBUG, msg=None, exc=None):
+    """
+    A convenience function for sending multiple lines of information
+    to the system log.  The lines can get intermingled with other
+    messages, but it is still more readable that a single massive line
+    for a traceback.
+
+    Default for 'level' is LOG_DEBUG.
+
+    If a single argument is passed, then it can be a string or an
+    Exception.  If Exception, 'level' is set to LOG_NOTICE.  If
+    string, 'level' is set to LOG_DEBUG.
+    """
+    if msg is None and exc is None:
+        if isinstance(level, Exception):
+            exc = level
+            level = LOG_NOTICE
+        elif type(level) is str:
             msg = level
             level = LOG_DEBUG
         else:
-            raise Exception("")
+            msg = "multi_syslog single argument neither str nor Exception: %s" % repr(level)
+    if msg is None:
+        msg = ""
+    if exc is not None:
+        msg += "\n" + traceback.format_exc(exc)
     rows = msg.splitlines()
     def log(row):
         syslog(level, row)

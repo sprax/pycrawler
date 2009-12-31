@@ -11,13 +11,13 @@ __version__ = "0.1"
 import URL
 import Queue
 import traceback
-from nameddict import nameddict, SafeStr
 import multiprocessing
 from time import time, sleep
 from random import random
 from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 from TextProcessing import get_links
+from PersistentQueue import nameddict, SafeStr
 
 class Analyzable(nameddict): 
     """
@@ -66,14 +66,19 @@ class FetchInfo(Analyzable):
     # This establishes the order of the fields in instances of
     # PersistentQueue managed by CrawlStateManager
     _key_ordering = [
-        "hostbin", "docid", "state", "score",
-        "hostid", "hostkey", "relurl"]
-    
-    _val_types = [
-        str, str, int, float,
-        str, str, SafeStr]
+        "docid", "state", "score", 
+        "depth", "last_modified", "http_response", 
+        "relurl",
+        "content_data"]
 
-    def __init__(self, attrs=None, key_ordering=None, val_types=None, url=None):
+    _val_types = [str, int, float, 
+                  int, int, int, 
+                  str, SafeStr,
+                  SafeStr]
+
+    _sort_key = 0
+
+    def __init__(self, attrs=None, url=None):
         """
         Sets up the Analyzable nature of FetchInfo.
 
@@ -81,15 +86,27 @@ class FetchInfo(Analyzable):
 
         This computes hostid, hostbin, and docid.
         """
-        Analyzable.__init__(self, attrs, key_ordering, val_types)
+        Analyzable.__init__(self, attrs)
         if url is not None:
             self.hostkey, self.relurl = URL.get_hostkey_relurl(url)
         self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
         self.docid = URL.make_docid(self.hostkey, self.relurl)
 
-class InvalidAnalyzer(Exception): pass
+    def make_FetchInfos_for_links(self):
+        """
+        Generates nearly-empty FetchInfo records for every outbound
+        link in the page.
+        """
+        infos = []
+        for hostkey, recs in yzable.links:
+            for relurl, depth, last_modified, http_response, content_data in recs:
+                infos.append(FetchInfo({
+                            "hostkey": hostkey,
+                            "relurl": relurl,
+                            "depth": depth}))
+        return infos
 
-class AnalyzerChainPositionConflict(Exception): pass
+class InvalidAnalyzer(Exception): pass
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"
@@ -97,186 +114,105 @@ class AnalyzerChain(Process):
         """
         Setup inQ and go Event
         """
-        self.debug = debug
-        Process.__init__(self)
+        self._debug = debug
+        Process.__init__(self, go)
         self.inQ  = multiprocessing.Queue(10)
-        self.analyzers = {}
-        self.in_flight = 0
+        self._yzers = []
 
-    def add_analyzer(self, position, analyzer, copies=1):
+    def append(self, analyzer, copies=1):
         """
         analyzer should be a subclass of Analyzer.  The specified
-        number of copies of analyzer will not be started while
+        number of copies of analyzer will *not* be started while
         executing this method.  Rather, they will be started after the
-        AnalyzerChain itself starts.  All of them will be placed at
-        the specified position in this AnalyzerChain.
+        AnalyzerChain itself starts.  All of them will be placed in
+        the same position at the current end of the AnalyzerChain.
 
         Only one type of analyzer can occupy a given position.
         Setting copies to a number larger than one allows you to run
         multiple instances of the same yzer, and each job will pass
-        through only one of them (at random).
+        through only one of them (selected at random).
         """
         if copies == 0: return
         if not hasattr(analyzer, "name"):
             raise InvalidAnalyzer("missing name attr")
-        if position in self.analyzers:
-            raise AnalyzerChainPositionConflict()
-        # make a set of pointers to this analyzer class, but don't
-        # instantiate them, that must happen in run
-        yzers = [analyzer for count in range(copies)]
-        # Put them in position in analyzer chain
-        self.analyzers[position] = yzers
-
-    def msg(self, step):
-        syslog(
-            LOG_DEBUG,
-            "%s: %d in_flight, %d ever, %d inQ.qsize, %s" % (
-                step, self.in_flight, 
-                self.total_processed, self.inQ.qsize(), 
-                multiprocessing.active_children()))
+        self._yzers.append((analyzer, copies))
 
     def run(self):
         """
         Gets an Analyzable object from inQ and feeds them into the
         chain of analyzers, which are its child processes.
         """
-        self.prepare_process()
-        # Now prepare to run the chain
-        self.in_flight = 0
-        self.total_processed = 0
-        positions = self.analyzers.keys()
-        positions.sort()
-        if not positions: 
-            syslog(LOG_NOTICE, "run called without any analyzers")
-            return
-        # start all the analyzers as children
-        for pos in self.analyzers:
-            for i in range(len(self.analyzers[pos])):
-                # instantiate and start instance of this analyzer
-                yzer = self.analyzers[pos][i]()
-                yzer.start()
-                self.analyzers[pos][i] = yzer
-        # Now run the chain
-        syslog(LOG_DEBUG, "Starting AnalyzerChain loop")
         try:
-            while self.go.is_set() or self.in_flight > 0:
-                self.msg("outer loop")
-                # list of Analyzable instances to carry through all
-                # positions in the chain
-                yzables_in  = []
+            self.prepare_process()
+            if not self._yzers:
+                syslog(LOG_NOTICE, "run called with no analyzers")
+                return
+            syslog(LOG_DEBUG, "starting yzers with queues between")
+            queues = [multiprocessing.Queue(10)]
+            for pos in range(len(self._yzers)):
+                queues.append(multiprocessing.Queue(10))
+                (yzer, copies) = self._yzers[pos]
+                yzers = [yzer(queues[pos], queues[pos + 1])
+                         for copy in range(copies)]
+                for yzer in yzers:
+                    yzer.start()
+                self._yzers[pos] = yzers
+            syslog(LOG_DEBUG, "Starting main loop")
+            yzable = None
+            in_flight = 0
+            total_processed = 0
+            while self.go.is_set() or in_flight > 0:
+                syslog(
+                    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
+                        % (in_flight, total_processed,
+                           self.inQ.qsize(),
+                           multiprocessing.active_children()))
                 try:
                     yzable = self.inQ.get_nowait()
-                    yzables_in.append(yzable)
-                    self.in_flight += 1
-                    self.total_processed += 1
-                    syslog(LOG_DEBUG, "inQ gave yzable=" + repr(yzable))
+                    in_flight += 1
+                except Queue.Empty:
+                    yzable = None
+                if yzable is not None:
+                    # this can and should block
+                    queues[0].put(yzable)
+                try:
+                    yzable = queues[-1].get_nowait()
+                    in_flight -= 1
+                    # delete each yzable as it exits the chain
+                    try:
+                        del(yzable)
+                    except Exception, exc:
+                        multi_syslog("failed to delete yzable: %s"\
+                                         % traceback.format_exc(exc))
+                    total_processed += 1
                 except Queue.Empty:
                     pass
-                for pos in positions:
-                    self.msg("for pos in positions")
-                    yzers = self.analyzers[pos]
-                    # make a list for holding all the yzables we get
-                    # out of this group of yzers
-                    yzables_out = self.pop_all(pos)
-                    while len(yzables_in) > 0:
-                        self.msg("while len(yzables_in) > 0")
-                        yzables_out += self.pop_all(pos)
-                        # now put yzables into this group, starting at
-                        # random position in the group
-                        i = int(random() * len(yzers))
-                        not_blocked = True
-                        while len(yzables_in) > 0 and not_blocked:
-                            self.msg("inner not_blocked while len(yzables_in) > 0")
-                            yzable = yzables_in.pop()
-                            count = 0
-                            while True:
-                                self.msg("inner inner one yzable")
-                                try:
-                                    yzers[i].inQ.put_nowait(yzable)
-                                    count = 0
-                                    break
-                                except Queue.Full:
-                                    self.msg("skipping full inQ for %s (pid=%s)"%
-                                             (yzer.name, yzer.pid))
-                                    i = (i+1) % len(yzers)
-                                    count += 1
-                                if count > (2 * len(yzers)):
-                                    # we have looped twice without
-                                    # success, so assume we are
-                                    # blocked.  Put yzable back in
-                                    # list and break out so we can
-                                    # attempt to get more yzables out
-                                    # of yzers
-                                    self.msg("looped twice breaking out")
-                                    yzables_in.append(yzable)
-                                    not_blocked = False
-                                    break
-                        # if any yzables_in, then keep looping on this
-                        # group, otherwise:
-                    # move on to next pos in analyzers
-                    yzables_in = yzables_out
-                # done with all positions, ready to loop back to check
-                # inQ.  But first, decrement in_flight by the number
-                # we took off the last position in the chain.
-                for yzable in yzables_out:
-                    self.msg("out gave yzable=" + repr(yzable))
-                    self.in_flight -= 1
-                    # delete each yzable as it exits the chain
-                    del(yzable)
                 # if non are in_flight, then we can sleep here
-                if self.in_flight == 0: sleep(1)
+                if in_flight == 0: sleep(1)
             # go is clear and none in_flight, stop all analyzers
-            syslog("finished AnalyzerChain loop")
+            syslog("Finished main loop")
             try:
                 self.inQ.close()
                 self.inQ.cancel_join_thread()
             except Exception, exc:
-                syslog(traceback.format_exc(exc))
-            # stop and join all yzers
-            for pos in positions:
-                for yzer in self.analyzers[pos]:
+                multi_syslog(exc)
+            # stop all yzers
+            for pos in range(len(self._yzers)):
+                for yzer in self._yzers[pos]:
                     try:
                         yzer.stop()
                     except Exception, exc:
-                        syslog("%s (%d): %s" % (yzer.name, yzer.pid, exc))
-            syslog("stopped all Analyzers in AnalyzerChain")
+                        multi_syslog("%s(%d)" % (yzer.name, yzer.pid), exc)
+            syslog(LOG_DEBUG, "stopped all Analyzers")
         except Exception, exc:
-            multi_syslog("In main loop: " + traceback.format_exc(exc))
-
-    def pop_all(self, pos):
-        "attempt to get yzables out of yzers at pos"
-        yzables_out = []
-        for yzer in self.analyzers[pos]:
-            #if not yzer.is_alive(): do something?
-            try:
-                yzable = yzer.outQ.get_nowait()
-                yzables_out.append(yzable)
-            except Queue.Empty:
-                pass
-        return yzables_out
+            multi_syslog(exc)
 
     def list_analyzers(self):
         """
-        Returns a list of tuples (position, analyzer.name, copies)
+        Returns a list of tuples (analyzer.name, copies)
         """
-        ret = []
-        for pos in self.analyzers:
-            yzers = self.analyzers[pos]
-            ret.append((pos, yzers[0].name, len(yzers)))
-        return ret
-
-    def remove_analyzer(self, position, name):
-        """
-        Remove all copies from position if they have the given name.
-        This does not check whether there are jobs in process with
-        these yzers.  You must check that first.
-        """
-        yzers = self.analyzers[pos]
-        if yzers[0].name == name:
-            del(self.analyzers[pos])
-            for yzer in yzers:
-                yzer.stop()
-                yzer = None  # let gc cleanup
+        return [(copies[0].name, len(copies)) 
+                for copies in self._yzers]
 
 class Analyzer(Process):
     """
@@ -288,22 +224,22 @@ class Analyzer(Process):
     .cleanup() and set the 'name' attr.
     """
     name = "Analyzer Base Class"
-    def __init__(self):
+    def __init__(self, inQ, outQ):
         """
         Sets up an inQ, outQ
         """
         Process.__init__(self)
-        self.inQ  = multiprocessing.Queue(10)
-        self.outQ = multiprocessing.Queue(10)
+        self.inQ  = inQ
+        self.outQ = outQ
 
     def run(self):
         """
         Gets yzable objects out of inQ, calls self.analyze(yzable)
         """
-        self.prepare_process()
-        self.prepare()
-        syslog(LOG_DEBUG, "Starting.")
         try:
+            self.prepare_process()
+            self.prepare()
+            syslog(LOG_DEBUG, "Starting.")
             while self.go.is_set():
                 try:
                     yzable = self.inQ.get_nowait()
@@ -314,25 +250,15 @@ class Analyzer(Process):
                     yzable = self.analyze(yzable)
                 except Exception, exc:
                     multi_syslog(
-                        LOG_NOTICE, 
-                        "Encountered error while processing: %s%s --> %s" % (
-                            yzable.hostkey, 
-                            hasattr(yzable, "relurl") and yzable.relurl or "", 
-                            traceback.format_exc(exc)))
+                        LOG_NOTICE,
+                        msg="analyze failed on: %s%s" % ( \
+                            hasattr(yzable, "hostkey") and yzable.hostkey or "",
+                            hasattr(yzable, "relurl") and yzable.relurl or ""),
+                        exc=exc)
                 self.outQ.put(yzable)
+            self.cleanup()
         except Exception, exc:
-            multi_syslog(
-                LOG_DEBUG, 
-                "While self.go.is_set() loop had: %s" % 
-                traceback.format_exc(exc))
-        try:
-            self.inQ.close()
-            self.inQ.cancel_join_thread()
-            self.outQ.close()
-            self.outQ.cancel_join_thread()
-        except Exception, exc:
-            multi_syslog(traceback.format_exc(exc))
-        self.cleanup()
+            multi_syslog(LOG_DEBUG, exc=exc)
 
     def analyze(self, yzable):
         """
@@ -345,18 +271,15 @@ class Analyzer(Process):
         """
         Called after this multiprocessing.Process is started.
         Initialize whatever state you need for your self.analyze(job).
-        Create whatever special state or tables this analyzer needs in
-        the database.  Do not modify the MultiFetcher's tables, called
-        'urls' and 'hosts'.  You can refer to rows in the urls table
-        using the md5 column, which is the md5 hash of the full url.
+        Create whatever special state or tables this analyzer needs.
         """
-        return ""
+        syslog("Prepare.")
     def cleanup(self):
         """
         Called at the very end of the multiprocessing.Process.run
         function.
         """
-        syslog("finishing")
+        syslog("Cleanup.")
 
 class DumpLinks(Analyzer):
     name = "DumpLinks"
@@ -442,15 +365,11 @@ class MakeContentData(Analyzer):
 
 class LogInfo(Analyzer):
     name = "LogInfo"
-    def prepare(self):
-        syslog("Prepare.")
     def analyze(self, yzable):
         syslog("Analyze called with %s" % yzable)
         if isinstance(yzable, FetchInfo):
             syslog("Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
         return yzable
-    def cleanup(self):
-        syslog("Cleanup.")
 
 class SpeedDiagnostics(Analyzer):
     name = "SpeedDiagnostics"
