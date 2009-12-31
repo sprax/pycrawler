@@ -1,0 +1,4 @@
+#!/bin/bash
+
+python tests/test_nameddict.py
+python tests/test_Queues.py
