@@ -72,7 +72,7 @@ def basic_test(data_path, ELEMENTS=1000, p=None, compress=True):
     if p is None:
         p = PersistentQueue.PersistentQueue(data_path, 10, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
-        (ELEMENTS, p.cache_size)
+        (ELEMENTS, p._cache_size)
     for a in range(ELEMENTS):
         p.put(str(a))
     p.sync()
@@ -105,7 +105,7 @@ def lines_test(data_path, ELEMENTS=1000, p=None, compress=True):
     if p is None:
         p = PersistentQueue.PersistentQueue(data_path, 10, PersistentQueue.LineFiles, compress=compress)
     print "Enqueueing %d items, cache size = %d" % \
-        (ELEMENTS, p.cache_size)
+        (ELEMENTS, p._cache_size)
     for a in range(ELEMENTS):
         p.put(str(a))
     p.sync()
@@ -145,8 +145,8 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     ret = p.sort(compress_temps, numerical=True)
     end = time()
     assert ret is True, "PersistentQueue.PersistentQueue.sort failed with ret = " + str(ret)
-    print "head = %d, tail = %d" % (p.head, p.tail)
-    print "index_file: %s" % open(p.index_file).read()
+    print "head = %d, tail = %d" % (p._head, p._tail)
+    print "index_file: %s" % open(p._index_file).read()
     elapsed = end - start
     rate = elapsed and (ELEMENTS / elapsed) or 0.0
     # get the response and compare with answer
@@ -278,14 +278,14 @@ def triqueue_test(data_path, ELEMENTS=1000):
     for i in range(1000):
         v = str(random.random())
         tq.put([v])
-    print "inQ has\t\t%d" % len(tq.inQ)
-    print "readyQ has\t%d" % len(tq.readyQ)
-    print "pendingQ has\t%d" % len(tq.pendingQ)
+    print "inQ has\t\t%d" % len(tq._inQ)
+    print "readyQ has\t%d" % len(tq._readyQ)
+    print "pendingQ has\t%d" % len(tq._pendingQ)
     merger = tq.sync()
     print "Merger.is_alive() --> " + str(merger.is_alive())
-    print "inQ has\t\t%d" % len(tq.inQ)
-    print "readyQ has\t%d" % len(tq.readyQ)
-    print "pendingQ has\t%d" % len(tq.pendingQ)
+    print "inQ has\t\t%d" % len(tq._inQ)
+    print "readyQ has\t%d" % len(tq._readyQ)
+    print "pendingQ has\t%d" % len(tq._pendingQ)
     i = 0
     while i < 500:
         try:

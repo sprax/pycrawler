@@ -1,21 +1,21 @@
 """
 TriQueue provides a Queue interface to a set of three PersistentQueues:
 
-   inQ
+   _inQ
 
-   readyQ
+   _readyQ
 
-   pendingQ
+   _pendingQ
 
-Calling TriQueue.get() retrieves a record from the readyQ and stores a
-copy of it in the pendingQ.  Calling TriQueue.put() puts a record in
-the inQ.
+Calling TriQueue.get() retrieves a record from the _readyQ and stores a
+copy of it in the _pendingQ.  Calling TriQueue.put() puts a record in
+the _inQ.
 
-At any time, one can call TriQueue.sync() to merge all the inQ and
-pendingQ records into readyQ.  Generally, one does this when readyQ
+At any time, one can call TriQueue.sync() to merge all the _inQ and
+_pendingQ records into _readyQ.  Generally, one does this when _readyQ
 has reached Empty and any process that might have removed a record
 (thereby causing it to go into pending) has either put a updated
-version of it back into the inQ or has crashed such that we never
+version of it back into the _inQ or has crashed such that we never
 expect to get one.
 
 """
@@ -36,84 +36,84 @@ from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, L
 from PersistentQueue import PersistentQueue, Mutex
 
 class TriQueue:
-    debug = True
+    _debug = True
 
     class ReadyToSync(Exception): pass
     class Syncing(Exception): pass
     class Blocked(Exception): pass
 
     def __init__(self, data_path, marshal=LineFiles):
-        self.data_path = data_path
-        self.inQ_path = os.path.join(data_path, "inQ")
-        self.readyQ_path = os.path.join(data_path, "readyQ")
-        self.pendingQ_path = os.path.join(data_path, "pendingQ")
-        self.marshal = marshal
-        self.inQ = None
-        self.readyQ = None
-        self.pendingQ = None
-        self.open_queues()
-        self.mutex_path = os.path.join(data_path, "lock_file")
-        self.mutex = Mutex(self.mutex_path)
-        self.sync_pending_mutex_path = os.path.join(
+        self._data_path = data_path
+        self._inQ_path = os.path.join(data_path, "_inQ")
+        self._readyQ_path = os.path.join(data_path, "_readyQ")
+        self._pendingQ_path = os.path.join(data_path, "_pendingQ")
+        self._marshal = marshal
+        self._inQ = None
+        self._readyQ = None
+        self._pendingQ = None
+        self._open_queues()
+        self._mutex_path = os.path.join(data_path, "lock_file")
+        self._mutex = Mutex(self._mutex_path)
+        self._sync_pending_mutex_path = os.path.join(
             data_path, "sync_lock_file")
-        self.sync_pending = Mutex(
-            self.sync_pending_mutex_path)
+        self._sync_pending = Mutex(
+            self._sync_pending_mutex_path)
 
-    def open_queues(self):
+    def _open_queues(self):
         """
         Open the three queues
         """
-        self.inQ = PersistentQueue(self.inQ_path, marshal=self.marshal)
-        self.readyQ = PersistentQueue(self.readyQ_path, marshal=self.marshal)
-        self.pendingQ = PersistentQueue(self.pendingQ_path, marshal=self.marshal)
+        self._inQ = PersistentQueue(self._inQ_path, marshal=self._marshal)
+        self._readyQ = PersistentQueue(self._readyQ_path, marshal=self._marshal)
+        self._pendingQ = PersistentQueue(self._pendingQ_path, marshal=self._marshal)
         
     def close(self):
         """
         Close all three queues that we have openned.
         """
-        self.mutex.acquire()
-        self.inQ.close()
-        self.readyQ.close()
-        self.pendingQ.close()
-        self.mutex.release()
+        self._mutex.acquire()
+        self._inQ.close()
+        self._readyQ.close()
+        self._pendingQ.close()
+        self._mutex.release()
 
     def put(self, data, block=True):
-        acquired = self.mutex.acquire(block)
+        acquired = self._mutex.acquire(block)
         if not acquired:
             raise self.Blocked
-        self.inQ.put(data)
-        self.mutex.release()
+        self._inQ.put(data)
+        self._mutex.release()
 
     def put_nowait(self, data):
         return self.put(data, block=False)
 
     def get(self, block=True, maxP=None):
         """
-        Get a data item from the readyQ and store a copy in pendingQ
+        Get a data item from the _readyQ and store a copy in _pendingQ
 
-        If readyQ is Empty, but we are syncing, then raise Syncing
+        If _readyQ is Empty, but we are syncing, then raise Syncing
         instead of Queue.Empty.
 
-        If maxP is a float, then readyQ might raise NotYet
+        If maxP is a float, then _readyQ might raise NotYet
         """
-        acquired = self.mutex.acquire(block)
+        acquired = self._mutex.acquire(block)
         if not acquired:
             raise self.Blocked
         try:
-            data = self.readyQ.get(maxP=maxP)
+            data = self._readyQ.get(maxP=maxP)
             return data
         except NormalQueue.Empty:
-            if not self.sync_pending.available():
+            if not self._sync_pending.available():
                 raise self.Syncing
             else:
-                self.readyQ.make_singleprocess_safe()
-            #syslog("in the mix: %d %d %d %s" % (len(self.inQ), len(self.readyQ), len(self.pendingQ), self.data_path))
-            if (len(self.inQ) + len(self.pendingQ)) > 0:
+                self._readyQ.make_singleprocess_safe()
+            #syslog("in the mix: %d %d %d %s" % (len(self._inQ), len(self._readyQ), len(self._pendingQ), self._data_path))
+            if (len(self._inQ) + len(self._pendingQ)) > 0:
                 raise self.ReadyToSync
             else:
                 raise NormalQueue.Empty
         finally:
-            self.mutex.release()
+            self._mutex.release()
 
     def get_nowait(self):
         """
@@ -127,70 +127,68 @@ class TriQueue:
         (empty) queues to continue handling gets and puts.
 
         Then, merge all data from the existing three queues and put
-        the result into the new readyQ.
+        the result into the new _readyQ.
         """
-        acquired = self.mutex.acquire(block)
+        acquired = self._mutex.acquire(block)
         if not acquired:
             raise self.Blocked
-        acquired = self.sync_pending.acquire(block)
+        acquired = self._sync_pending.acquire(block)
         if not acquired:
             # sync is already running
-            self.mutex.release()
+            self._mutex.release()
             raise self.Syncing
         # release sync_pending so Merger child process can acquire it.
         # This is inside the mutex.acquire, so no other process
         # can get confused about whether we're syncing.
-        self.sync_pending.release()
-        assert self.sync_pending.fh is None
-        self.sync_pending.acquire()
-        self.sync_pending.release()
-
-        # the mutex is acquired, so put/get will block while we
-        # rename those directories and setup new versions of queues
-        self.inQ.close()
-        self.readyQ.close()
-        self.pendingQ.close()
-        inQ_syncing = self.inQ_path + "_syncing"
-        readyQ_syncing = self.readyQ_path + "_syncing"
-        pendingQ_syncing = self.pendingQ_path + "_syncing"
-        shutil.move(self.inQ_path, inQ_syncing)
-        shutil.move(self.readyQ_path, readyQ_syncing)
-        shutil.move(self.pendingQ_path, pendingQ_syncing)
-        #map(lambda line: syslog(LOG_NOTICE, line), os.listdir(self.data_path))
-        self.open_queues()
-        self.readyQ.make_multiprocess_safe()
-
+        self._sync_pending.release()
+        # self._mutex is acquired, so put/get will block while we
+        # rename directories and setup new versions of queues
+        self._inQ.close()
+        self._readyQ.close()
+        self._pendingQ.close()
+        # create temp paths for syncing, so can give to Merger below
+        _inQ_syncing = self._inQ_path + "_syncing"
+        _readyQ_syncing = self._readyQ_path + "_syncing"
+        _pendingQ_syncing = self._pendingQ_path + "_syncing"
+        # move the dirs
+        shutil.move(self._inQ_path, _inQ_syncing)
+        shutil.move(self._readyQ_path, _readyQ_syncing)
+        shutil.move(self._pendingQ_path, _pendingQ_syncing)
+        #syslog(LOG_DEBUG, "recreating three Queues as empty")
+        #map(lambda line: syslog(LOG_NOTICE, line), os.listdir(self._data_path))
+        self._open_queues()
+        self._readyQ.make_multiprocess_safe()
         # while still holding the mutex, we launch a process to
         # sort and merge all the files.  The child process acquires
         # the sync_pending mutex, which we checked above.
         class Merger(multiprocessing.Process):
             "manages the merge"
             name = "MergerProcess"
-            marshal = self.marshal
-            paths = [inQ_syncing, readyQ_syncing, pendingQ_syncing]
-            sync_pending_mutex_path = self.sync_pending_mutex_path
+            _marshal = self._marshal
+            _paths = [_inQ_syncing, _readyQ_syncing, _pendingQ_syncing]
+            _sync_pending_mutex_path = self._sync_pending_mutex_path
             accumulator = self.accumulator
-            readyQ = self.readyQ
-            debug = self.debug
+            _readyQ = self._readyQ
+            _debug = self._debug
             def run(self):
                 "waits for merge to complete"
                 try:
                     openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
-                    if not self.debug:
+                    if not self._debug:
                         setlogmask(LOG_UPTO(LOG_INFO))
-                    self.sync_pending = Mutex(self.sync_pending_mutex_path)
-                    self.sync_pending.acquire()
-                    pq = PersistentQueue(self.paths[0], marshal=self.marshal)
-                    queues = [PersistentQueue(self.paths[1], marshal=self.marshal),
-                              PersistentQueue(self.paths[2], marshal=self.marshal)] 
-                    retval = pq.sort(merge_from=queues, merge_to=self.readyQ)
+                    self._sync_pending = Mutex(self._sync_pending_mutex_path)
+                    self._sync_pending.acquire()
+                    pq = PersistentQueue(self._paths[0], marshal=self._marshal)
+                    queues = [PersistentQueue(self._paths[1], marshal=self._marshal),
+                              PersistentQueue(self._paths[2], marshal=self._marshal)] 
+                    retval = pq.sort(merge_from=queues, merge_to=self._readyQ)
                     assert retval is True, \
                         "Should get True from sort, instead: " + str(retval)
                     # if sort fails, the following will not happen
                     pq.close()
-                    for path in self.paths:
+                    for path in self._paths:
                         shutil.rmtree(path)
-                    self.sync_pending.release()
+                    self._sync_pending.release()
                 except Exception, exc:
                     map(lambda line: syslog(LOG_NOTICE, line), 
                         traceback.format_exc(exc).splitlines())
@@ -199,14 +197,14 @@ class TriQueue:
         merger.start()
         # loop until the child process acquires its mutex
         while merger.is_alive():
-            acquired = self.sync_pending.acquire(block=False)
+            acquired = self._sync_pending.acquire(block=False)
             if not acquired:
                 break
             else:
-                self.sync_pending.release()
+                self._sync_pending.release()
                 sleep(0.1)
         # now release main mutex and get back to normal operation
-        self.mutex.release()
+        self._mutex.release()
         return merger
 
     def sync_and_close(self):
@@ -215,17 +213,16 @@ class TriQueue:
         closes it.
         """
         class SyncAndClose(multiprocessing.Process):
-            debug = True
-            name = "SyncAndClose: %s" % self.data_path
-            TriQueue = self
+            name = "SyncAndClose: %s" % self._data_path
+            _TriQueue = self
             def run(self):
                 "calls sync and waits for it to finish before closing"
                 try:
                     openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
-                    self.TriQueue.sync()
-                    while not self.TriQueue.sync_pending.available():
+                    self._TriQueue.sync()
+                    while not self._TriQueue.sync_pending.available():
                         sleep(2)
-                    self.TriQueue.close()
+                    self._TriQueue.close()
                     syslog(LOG_DEBUG, "Done syncing and closing")
                 except Exception, exc:
                     # send full traceback to syslog in readable form

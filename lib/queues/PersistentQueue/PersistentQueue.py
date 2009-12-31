@@ -38,8 +38,8 @@ class Mutex(object):
         If lock_path does not exist, this creates it and leaves it
         unlocked.
         """
-        self.lock_path = lock_path
-        self.fh = None
+        self._lock_path = lock_path
+        self._fh = None
         if os.path.exists(lock_path):
             assert os.path.isfile(lock_path), \
                 "lock_path must be a regular file"
@@ -67,13 +67,13 @@ class Mutex(object):
         If 'block' is False, then return False if the lock was not
         acquired.  Otherwise, returns True.
         """
-        self.fd = os.open(self.lock_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        self.fh = os.fdopen(self.fd, "a")
+        fd = os.open(self._lock_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        self._fh = os.fdopen(fd, "a")
         lock_flags = fcntl.LOCK_EX
         if not block:
             lock_flags |= fcntl.LOCK_NB
         try:
-            fcntl.flock(self.fh, lock_flags)
+            fcntl.flock(self._fh, lock_flags)
         except IOError, e:
             if e[0] == 11:
                 return False
@@ -82,21 +82,23 @@ class Mutex(object):
 
     def release(self):
         "release lock and close file handle"
-        if self.fh is not None:
-            fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
-            self.fh.close()
-            self.fh = None
+        if self._fh is not None:
+            fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            self._fh.close()
+            self._fh = None
 
     def available(self):
         "returns bool whether mutex is not locked"
-        if self.fh is None: 
+        if self._fh is None: 
             return True
         return False
 
 class Writer:
     """
-    Internal factory function for creating a Writer object for
-    this queue.  Relies on the caller to have:
+    a Writer instance wraps a PersistentQueue, and holds it in a
+    locked state, so that the caller can write already serialized data
+    directly into the queue's flat files.  This relies on the caller
+    to have:
 
         * closed the queue
 
@@ -107,21 +109,20 @@ class Writer:
           releasing the mutex.
 
         * computed 'count', which is the current number of objects
-          already serialized into the file pointed to by tail
+          already serialized into the file pointed to by queue._tail
     """
     def __init__(self, queue, count, mutex=None):
         """
-        Initialize a file-like object for writing directly to
-        the files hidden inside a PersistentQueue (specified
-        by 'queue')
+        Initialize a file-like object for writing directly to the
+        files hidden inside a PersistentQueue (specified by 'queue')
         """
-        self.queue = queue
-        self.count = count
-        self.mutex = mutex
-        self.current = None
-        self.open(replace=False)
+        self._queue = queue
+        self._count = count
+        self._mutex = mutex
+        self._current = None
+        self._open(replace=False)
 
-    def open(self, replace):
+    def _open(self, replace):
         """
         opens self.current file based on self.queue.tail.  If
         'replace' is True, then any existing file is overwritten.  If
@@ -131,41 +132,43 @@ class Writer:
             mode = "wb"
         else:
             mode = "ab"
-        file_path = os.path.join(self.queue.data_path, str(self.queue.tail))
-        self.current = open(file_path, mode)
-        if self.queue.compress:
-            self.current = gzip.GzipFile(
-                mode = mode,  fileobj = self.current, compresslevel = 9)
+        file_path = os.path.join(
+            self._queue._data_path, 
+            str(self._queue._tail))
+        self._current = open(file_path, mode)
+        if self._queue._compress:
+            self._current = gzip.GzipFile(
+                mode = mode,  fileobj = self._current, compresslevel = 9)
 
     def _split(self):
         """
         Called by 'write' whenever the cache size is reached
         """
-        self.queue.tail += 1
-        self.count = 0
-        self.current.close()
-        self.open(replace=True)
+        self._queue._tail += 1
+        self._count = 0
+        self._current.close()
+        self._open(replace=True)
 
     def writeline(self, line):
         """
         Check if current file is full, _split if necessary,
         and append record to end of current file.
         """
-        if self.count == self.queue.cache_size:
+        if self._count == self._queue._cache_size:
             self._split()
-        self.current.write(line)
-        self.count += 1
+        self._current.write(line)
+        self._count += 1
 
     def close(self):
         """
         Closes the current file and releases the mutex.
         """
         # we have updated queue.tail, so fix on-disk index
-        self.queue._sync_index()
-        self.current.close()
-        if self.mutex is not None:
-            self.queue._open()
-            self.mutex.release()
+        self._queue._sync_index()
+        self._current.close()
+        if self._mutex is not None:
+            self._queue._open()
+            self._mutex.release()
 # end of Writer class
 
 class PersistentQueue:
@@ -186,25 +189,25 @@ class PersistentQueue:
         optional 'marshal' argument (e.g. pickle).
         """
         assert cache_size > 0, "Cache size must be larger than 0"
-        self.cache_size = cache_size
-        self.marshal = marshal
-        self.compress = compress
-        self.index_file = os.path.join(data_path, INDEX_FILENAME)
-        self.temp_path = os.path.join(data_path, "tempfile")
-        self.data_path = os.path.join(data_path, "data")
-        self.mutex_path = os.path.join(data_path, "lock_file")
-        self.mutex = Mutex(self.mutex_path)
-        self.head = None
-        self.tail = None
-        self.put_cache = None
-        self.get_cache = None
+        self._cache_size = cache_size
+        self._marshal = marshal
+        self._compress = compress
+        self._index_file = os.path.join(data_path, INDEX_FILENAME)
+        self._temp_path = os.path.join(data_path, "tempfile")
+        self._data_path = os.path.join(data_path, "data")
+        self._mutex_path = os.path.join(data_path, "lock_file")
+        self._mutex = Mutex(self._mutex_path)
+        self._head = None
+        self._tail = None
+        self._put_cache = None
+        self._get_cache = None
         # set by make_multiprocess_safe and make_singleprocess_safe
         self._multiprocessing = False
         # make sure nobody else is trying to open right now, and then
         # open for this instance.
-        self.mutex.acquire()
+        self._mutex.acquire()
         self._open()
-        self.mutex.release()
+        self._mutex.release()
 
     def _open(self):
         """
@@ -213,9 +216,9 @@ class PersistentQueue:
         added and before _open is called.  The close method also calls
         sync.
         """
-        if not os.path.exists(self.data_path):
+        if not os.path.exists(self._data_path):
             try:
-                os.makedirs(self.data_path)
+                os.makedirs(self._data_path)
             except OSError, exc:
                 # if it already exists
                 if exc.errno == 17:
@@ -223,15 +226,15 @@ class PersistentQueue:
                 else:
                     raise
         # start in-memory pointers from scratch
-        self.head, self.tail = 0, 1
+        self._head, self._tail = 0, 1
         # if the index is there, reset them
-        if os.path.exists(self.index_file):
+        if os.path.exists(self._index_file):
             try:
-                index_file = open(self.index_file)
+                index_file = open(self._index_file)
                 index_data = index_file.read()
                 index_file.close()
                 # last step in try/except sets the pointers
-                self.head, self.tail = \
+                self._head, self._tail = \
                     map(lambda x: int(x), index_data.split(" "))
             except Exception, exc:
                 # send full traceback to syslog in readable form
@@ -243,69 +246,69 @@ class PersistentQueue:
             If a cache file exists on disk, load it, otherwise set the
             attr to empty list.
             """
-            data_path = os.path.join(self.data_path, str(num))
+            data_path = os.path.join(self._data_path, str(num))
             if not os.path.exists(data_path):
                 setattr(self, cache_name, [])
             else:
                 mode = "rb+"
                 cachefile = open(data_path, mode)
-                if self.compress:
+                if self._compress:
                     cachefile = gzip.GzipFile(
                         mode = mode,  fileobj = cachefile, compresslevel = 9)
                 try:
-                    setattr(self, cache_name, self.marshal.load(cachefile))
+                    setattr(self, cache_name, self._marshal.load(cachefile))
                 except EOFError:
                     setattr(self, cache_name, [])
                 cachefile.close()
         # now use the function to set the two caches
-        _load_cache("put_cache", self.tail)
-        _load_cache("get_cache", self.head)
-        assert self.head < self.tail, "Head not less than tail"
+        _load_cache("_put_cache", self._tail)
+        _load_cache("_get_cache", self._head)
+        assert self._head < self._tail, "Head not less than tail"
 
     def _sync_index(self):
         """
         Fixes the data stored in the index file to match the in-memory
-        state represented by self.head and self.tail
+        state represented by self._head and self._tail
         """
-        assert self.head < self.tail, "Head not less than tail"
-        index_file = open(self.temp_path, "w")
-        index_file.write("%d %d" % (self.head, self.tail))
+        assert self._head < self._tail, "Head not less than tail"
+        index_file = open(self._temp_path, "w")
+        index_file.write("%d %d" % (self._head, self._tail))
         index_file.close()
-        if os.path.exists(self.index_file):
-            os.remove(self.index_file)
-        os.rename(self.temp_path, self.index_file)
+        if os.path.exists(self._index_file):
+            os.remove(self._index_file)
+        os.rename(self._temp_path, self._index_file)
 
     def _write_cache(self, cache, rel_data_path):
         """
         Writes the contents of 'cache' (a list) into a file at
-        data_path/rel_data_path using self.marshal
+        data_path/rel_data_path using self._marshal
         """
         # store cache in temp_file
-        temp_file = open(self.temp_path, "wb")
-        if self.compress:
+        temp_file = open(self._temp_path, "wb")
+        if self._compress:
             temp_file = gzip.GzipFile(
                 mode = "wb",  fileobj = temp_file, compresslevel = 9)
-        self.marshal.dump(cache, temp_file)
+        self._marshal.dump(cache, temp_file)
         temp_file.close()
         # move the temp_file to file named by tail
         if not isinstance(rel_data_path, basestring):
             rel_data_path = str(rel_data_path)
-        file_path = os.path.join(self.data_path, rel_data_path)
+        file_path = os.path.join(self._data_path, rel_data_path)
         if os.path.exists(file_path):
             os.remove(file_path)
-        os.rename(self.temp_path, file_path)
+        os.rename(self._temp_path, file_path)
 
     def _split(self):
         """
         Called whenever put_cache has grown larger than cache_size
         """
-        assert len(self.put_cache) == self.cache_size, \
+        assert len(self._put_cache) == self._cache_size, \
             "Too late: _split called after put_cache is *larger* than cache_size"
-        self._write_cache(self.put_cache, self.tail)
+        self._write_cache(self._put_cache, self._tail)
         # update tail, which means we must update in-memory cache
-        self.tail += 1
+        self._tail += 1
         # put_cache is now safely on disk, so in-memory is empty:
-        self.put_cache = []
+        self._put_cache = []
         self._sync_index()
 
     def _join(self):
@@ -321,32 +324,32 @@ class PersistentQueue:
         """
         # Current cache position is one higher than head.  This is the
         # only place this gets incremented:
-        current = self.head + 1
-        if current == self.tail:
+        current = self._head + 1
+        if current == self._tail:
             # no files on disk, make the get_cache the put_cache
             # (could be any length)
-            self.get_cache = self.put_cache
+            self._get_cache = self._put_cache
             # the put_cache should now be empty
-            self.put_cache = []
+            self._put_cache = []
             # head and tail need not move
         else:
             # load next file from disk
-            get_file = open(os.path.join(self.data_path, str(current)), "rb")
-            if self.compress:
+            get_file = open(os.path.join(self._data_path, str(current)), "rb")
+            if self._compress:
                 get_file = gzip.GzipFile(
                     mode = "rb",  fileobj = get_file, compresslevel = 9)
-            self.get_cache = self.marshal.load(get_file)
+            self._get_cache = self._marshal.load(get_file)
             get_file.close()
             # remove it
             try:
-                os.remove(os.path.join(self.data_path, str(self.head)))
+                os.remove(os.path.join(self._data_path, str(self._head)))
             except:
                 pass
             # update head position: it moves one up (see above)
-            self.head = current
+            self._head = current
         # make sure head is always less than tail:
-        if self.head == self.tail:
-            self.head = self.tail - 1
+        if self._head == self._tail:
+            self._head = self._tail - 1
         # fix index file
         self._sync_index()
 
@@ -354,12 +357,12 @@ class PersistentQueue:
         """
         Put the contents of both get_cache and put_cache on disk
         """
-        if self.get_cache is None: 
+        if self._get_cache is None: 
             # queue is closed
             return
         self._sync_index()
-        self._write_cache(self.get_cache, self.head)
-        self._write_cache(self.put_cache, self.tail)
+        self._write_cache(self._get_cache, self._head)
+        self._write_cache(self._put_cache, self._tail)
         # as long as we do not change head or tail values, we can
         # leave the in-memory cache unchanged.
 
@@ -367,18 +370,18 @@ class PersistentQueue:
         """
         Return number of items in queue.
         """
-        self.mutex.acquire()
+        self._mutex.acquire()
         try:
             if self._multiprocessing:
                 self._open()
-            if self.get_cache is None:
-                return (self.tail - self.head - 1) * self.cache_size
-            return ((self.tail - self.head - 1) * self.cache_size) + \
-                    len(self.put_cache) + len(self.get_cache)
+            if self._get_cache is None:
+                return (self._tail - self._head - 1) * self._cache_size
+            return ((self._tail - self._head - 1) * self._cache_size) + \
+                    len(self._put_cache) + len(self._get_cache)
         finally:
             if self._multiprocessing:
                 self._close()
-            self.mutex.release()
+            self._mutex.release()
 
     def sort(self, 
              compress_temps=False, 
@@ -399,31 +402,31 @@ class PersistentQueue:
         which to put all records (instead of into this queue).
         merge_to can be in the list of merge_from.
         """
-        if not (hasattr(self.marshal, "_sort_key") \
-                    and self.marshal._sort_key is not None):
+        if not (hasattr(self._marshal, "_sort_key") \
+                    and self._marshal._sort_key is not None):
             return NotImplemented
         if self in merge_from:
             queues = merge_from
         else:
             queues = [self] + merge_from
         for pq in queues:
-            assert pq.compress == self.compress, \
+            assert pq._compress == self._compress, \
                 "All merge_from queues must have same compress flag as this queue"
         for pq in queues:
-            pq.mutex.acquire()
+            pq._mutex.acquire()
         try:
             # do what close does
             for pq in queues:
                 pq._sync()
-                if os.path.exists(pq.temp_path):
+                if os.path.exists(pq._temp_path):
                     try:
-                        os.remove(pq.temp_path)
+                        os.remove(pq._temp_path)
                     except:
                         pass
                 # remove index file, so no conflict when _open
-                os.remove(pq.index_file)
+                os.remove(pq._index_file)
             # make a single file of all the sorted data
-            sorted_path = "%s/../sorted" % self.data_path
+            sorted_path = "%s/../sorted" % self._data_path
             sorted_file = open(sorted_path, "w")
             args = ["sort"]
             # treat sort field as a number
@@ -435,22 +438,22 @@ class PersistentQueue:
             # define the sort field
             args.append(
                 "-k%d,%d" % (
-                    self.marshal._sort_key + 1, 
-                    self.marshal._sort_key + 2))
+                    self._marshal._sort_key + 1, 
+                    self._marshal._sort_key + 2))
             # define field separator
-            args.append("-t%s" % self.marshal.DELIMITER)
+            args.append("-t%s" % self._marshal.DELIMITER)
             if compress_temps:
                 args.append("--compress-program=gzip")
             # setup the list of file paths
             files = []
             for pq in queues:
-                files += [os.path.join(pq.data_path, file_name)
-                          for file_name in os.listdir(pq.data_path)]
+                files += [os.path.join(pq._data_path, file_name)
+                          for file_name in os.listdir(pq._data_path)]
             #for file_name in files:
             #    print "%s --> \n\t%s" % (
             #        file_name, 
             #        "\n\t".join(open(file_name).read().splitlines()))
-            if self.compress:
+            if self._compress:
                 # If we are compressing, then we must load all the
                 # files here and push them over stdin, which loses
                 # benefit of having sorted them when writing.
@@ -491,8 +494,8 @@ class PersistentQueue:
                 os.remove(file_name)
             # fix in-memory head/tail state
             for pq in queues:
-                pq.head = 0
-                pq.tail = 1
+                pq._head = 0
+                pq._tail = 1
             syslog(LOG_DEBUG, "re-populating FIFO")
             if merge_to in merge_from:
                 writer = Writer(self, 0)
@@ -520,7 +523,7 @@ class PersistentQueue:
             for pq in queues:
                 pq._open()
             for pq in queues:
-                pq.mutex.release()
+                pq._mutex.release()
 
     def get_writer(self):
         """
@@ -528,41 +531,41 @@ class PersistentQueue:
         methods for allowing the caller to write directly to disk
         records that have already been serialized.
         """
-        self.mutex.acquire()
+        self._mutex.acquire()
         # in-memory put_cache has same number of records as the
-        # on-disk file identified by self.tail
-        count = len(self.put_cache)
+        # on-disk file identified by self._tail
+        count = len(self._put_cache)
         # flush to disk and close in-memory data structures, so we can
         # call _open in Writer.close()
         self._close()
-        return Writer(self, count, self.mutex)
+        return Writer(self, count, self._mutex)
 
     def sync(self):
         """
         Synchronize memory caches to disk.
         """
-        self.mutex.acquire()
+        self._mutex.acquire()
         try:
             self._sync()
         finally:
-            self.mutex.release()
+            self._mutex.release()
 
     def put(self, obj):
         """
         Put the item 'obj' on the queue.
         """
-        #syslog("%s doing a put of: %s" % (self.data_path, obj))
-        self.mutex.acquire()
+        #syslog("%s doing a put of: %s" % (self._data_path, obj))
+        self._mutex.acquire()
         try:
             if self._multiprocessing:
                 self._open()
-            self.put_cache.append(copy.copy(obj))
-            if len(self.put_cache) >= self.cache_size:
+            self._put_cache.append(copy.copy(obj))
+            if len(self._put_cache) >= self._cache_size:
                 self._split()
         finally:
             if self._multiprocessing:
                 self._close()
-            self.mutex.release()
+            self._mutex.release()
 
     def get(self, maxP=None):
         """
@@ -575,31 +578,31 @@ class PersistentQueue:
         Throws NotYet exception if the queue is not empty but the next
         record's priority is greater than maxP.
         """
-        self.mutex.acquire()
+        self._mutex.acquire()
         try:
             if self._multiprocessing:
                 # load caches from disk
                 self._open()
-            if len(self.get_cache) == 0:
+            if len(self._get_cache) == 0:
                 # load next cache file
                 self._join()
             # in-memory cache is fresh, so if empty:
-            if len(self.get_cache) == 0:
+            if len(self._get_cache) == 0:
                 raise NormalQueue.Empty
             # not empty, so consider next record
-            rec = self.get_cache.pop(0)
+            rec = self._get_cache.pop(0)
             if maxP is None or \
-                    self.marshal.get_sort_val(rec) <= maxP:
+                    self._marshal.get_sort_val(rec) <= maxP:
                 return rec
             else:
                 # rejecting it because of maxP priority
-                self.get_cache.insert(0, rec)
+                self._get_cache.insert(0, rec)
                 syslog("not yet: " + str(rec))
                 raise self.NotYet
         finally:
             if self._multiprocessing:
                 self._close()
-            self.mutex.release()
+            self._mutex.release()
 
     def make_multiprocess_safe(self):
         """
@@ -614,7 +617,7 @@ class PersistentQueue:
         Unset the effects of make_multiprocess_safe, so that only one
         process can interact with the PersistentQueue.
         """
-        if self.get_cache is None or self.put_cache is None:
+        if self._get_cache is None or self._put_cache is None:
             self._open()
         self._multiprocessing = False
 
@@ -623,24 +626,24 @@ class PersistentQueue:
         Sync the caches and remove any temp_path
         """
         self._sync()
-        if os.path.exists(self.temp_path):
+        if os.path.exists(self._temp_path):
             try:
-                os.remove(self.temp_path)
+                os.remove(self._temp_path)
             except:
                 pass
-        self.put_cache = None
-        self.get_cache = None
+        self._put_cache = None
+        self._get_cache = None
 
     def close(self):
         """
         Close the queue.  Implicitly synchronizes memory caches to disk.
         No further accesses should be made through this queue instance.
         """
-        self.mutex.acquire()
+        self._mutex.acquire()
         try:
             self._close()
         finally:
-            self.mutex.release()
+            self._mutex.release()
 
     def transfer_to(self, other_q):
         """
@@ -654,18 +657,18 @@ class PersistentQueue:
         """
         # prevent race condition where others add more to the queue
         # and never let us finish.
-        self.mutex.acquire()
+        self._mutex.acquire()
         while True:
             try:
-                if len(self.get_cache) > 0:
-                    rec = self.get_cache.pop(0)
+                if len(self._get_cache) > 0:
+                    rec = self._get_cache.pop(0)
                 else:
                     self._join()
-                    if len(self.get_cache) > 0:
-                        rec = self.get_cache.pop(0)
+                    if len(self._get_cache) > 0:
+                        rec = self._get_cache.pop(0)
                     else:
                         raise NormalQueue.Empty
                 other_q.put(rec)
             except NormalQueue.Empty:
                 break
-        self.mutex.release()
+        self._mutex.release()
