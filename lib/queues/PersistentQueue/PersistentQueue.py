@@ -536,15 +536,17 @@ class PersistentQueue:
             acc_state = None
             while True:
                 line = sorted_file.readline()
-                if not line: break
-                if not line.strip(): continue
                 if accumulator is None:
+                    if not line: break
+                    #if not line.strip(): continue
                     writer.writeline(line)
                 else:
                     # see description of accumulators in nameddict
                     acc_state, line = accumulator(acc_state, line)
                     if line is not None:
                         writer.writeline(line)
+                    if acc_state is None:
+                        break
                 #c += 1
             #print "called writeline %d times" % c
             writer.close()

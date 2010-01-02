@@ -33,10 +33,8 @@ class MyND2(PersistentQueue.nameddict):
     _key_ordering = ["a"]
     _val_types = [float]
     _sort_key = 0
-    @classmethod
-    def accumulator(cls, acc_state, line):
-        "do nothing"
-        return None, line
+    # do not accumulate
+    accumulator = None
 
 def test_mutex():
     print "Testing mutex..."
@@ -146,11 +144,16 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     print "index_file: %s" % open(p._index_file).read()
     elapsed = end - start
     rate = elapsed and (ELEMENTS / elapsed) or 0.0
+    print "sorted at a rate of %.3f records per second" % rate
     # get the response and compare with answer
     answer = range(ELEMENTS)
     vals = []
     for a in range(len(answer)):
-        vals.append(int(p.get().a))
+        try:
+            vals.append(int(p.get().a))
+        except Queue.Empty:
+            print "Bad sign: we got a Queue.Empty before we got expected number of records"
+            break            
     assert len(vals) == len(answer), \
         "Got back different number of results" + \
         "(%d) than expected (%d)" % (len(vals), len(answer))

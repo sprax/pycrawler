@@ -246,9 +246,18 @@ class nameddict(dict):
 
             * second return value is None unless the accumulator is
               done accumulating items into a single item
+
+        If 'line' has zero length, then the previous set of rows was
+        the last batch, and the first return value should be None,
+        signaling to the sort function that it should break out of
+        reading.  The second return value should be the last
+        accumulated row.
         """
+        if line == "":
+            # previous state was last record, so cause break
+            return None, cls.dumps(acc_state)
         current = cls.loads(line)
-        if acc_state == None:
+        if acc_state is None:
             # first pass accumulation
             return current, None
         if current == acc_state:
@@ -262,10 +271,10 @@ class nameddict(dict):
     @classmethod
     def dumps(cls, items):
         """
-        'items' must be a list of instances of nameddict or properly
-        constructed subclasses.  This serializes each item, joins with
-        newlines, appends a newline at the end, and returns the
-        string.
+        'items' can be either a single instance or a list of instances
+        of nameddict or properly constructed subclasses.  If a list,
+        then this serializes each item, joins with newlines, appends a
+        newline at the end, and returns the string.
 
         Sorting is handled using the rich comparison methods of the
         nameddict class, which rely on _sort_key
@@ -273,6 +282,8 @@ class nameddict(dict):
         Each item is treated as a separate entity to serialize using its
         __str__ method.
         """
+        if not isinstance(items, list):
+            items = [items]
         if cls._sort_key is not None:
             items.sort()
         return "\n".join([str(x) for x in items]) + "\n"
@@ -301,9 +312,13 @@ class nameddict(dict):
         'input' is an in-memory string.  Treats each line in 'input'
         as a separate entity to deserialize using this class' fromstr
         method.
+
+        Returns either a list of multiple items, or a single item.
         """
         ret = []
         for line in input.splitlines():
             if line:
                 ret.append(cls.fromstr(line))
+        if len(ret) == 1:
+            ret = ret[0]
         return ret

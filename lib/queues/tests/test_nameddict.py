@@ -44,6 +44,12 @@ def test(SomeND, attrs):
     assert sd == d, "failed to reconstruct from %s" % repr(s)
     print "... collapsing to line of text works ..."
 
+    # dumping a single item and reloading it:
+    s = MyND1.dumps(d)
+    pd = MyND1.loads(s)
+    assert d == pd and d.c == pd.c, "loads(dumps(d)) != d: %s -> %s -> %s" % (repr(str(d)), repr(str(s)), repr(str(pd)))
+    print "... dumping a single item and reloading it works ..."
+
 def sort_test():
     NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
     for i in range(1000):
@@ -96,6 +102,7 @@ def sorting_in_persistent_queue():
     NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
     for ND in NDs:
         pq.put(ND)
+    print "calling sort"
     ret = pq.sort()
     assert ret != NotImplemented, "failed to setup nameddict for sorting"
     prev = 0
