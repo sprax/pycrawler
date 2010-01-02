@@ -159,30 +159,38 @@ class nameddict(dict):
             param = cls._key_ordering[attr_num]
             val_type = cls._val_types[attr_num]
             str_val = parts[attr_num]
-            if str_val is "":
-                val = None
-            elif val_type is bool:
-                val = int(str_val)
-                val = val_type(val)
-            elif val_type is SafeStr:
-                val = urlsafe_b64decode(str_val)
-            else:
-                val = val_type(str_val)
-            attrs[param] = val
+            attrs[param] = cls.reconstitute(str_val, val_type)
         return cls(attrs)
+
+    @staticmethod
+    def reconstitute(str_val, val_type):
+        """
+        Converts str_val into the python type indicated by val_type,
+        and handles a few special cases related to stringifying None,
+        bool, and SafeStr.
+        """
+        if str_val is "":
+            val = None
+        elif val_type is bool:
+            val = int(str_val)
+            val = val_type(val)
+        elif val_type is SafeStr:
+            val = urlsafe_b64decode(str_val)
+        else:
+            val = val_type(str_val)
+        return val
 
     def get_sort_val(self):
         """
-        Returns the properly-typed value of the sort_key attribute of
+        Returns the reconstituted value of the sort_key attribute of
         this instance.
         """
         if self._sort_key is None:
             return None
         val_type = self._val_types[self._sort_key]
         param = self._key_ordering[self._sort_key]
-        val = getattr(self, param)
-        val = val_type(val)
-        return val
+        str_val = getattr(self, param)
+        return self.reconstitute(str_val, val_type)
 
     def same_type(self, other):
         """
@@ -228,7 +236,7 @@ class nameddict(dict):
     @classmethod
     def accumulator(cls, acc_state, line):
         """
-        This example accumulator simply de-duplicates items.  
+        This example accumulator simply de-duplicates items.
         
         Derived classes can (and should) overwrite this with a
         function that accumulates related records after a sort of

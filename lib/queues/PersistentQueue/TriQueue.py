@@ -130,6 +130,8 @@ class TriQueue:
                 self._readyQ.make_singleprocess_safe()
             #syslog("in the mix: %d %d %d %s" % (len(self._inQ), len(self._readyQ), len(self._pendingQ), self._data_path))
             if (len(self._inQ) + len(self._pendingQ)) > 0:
+                # only ReadyToSync when readyQ is Empty and the other
+                # two queues are not Empty
                 raise self.ReadyToSync
             else:
                 raise NormalQueue.Empty

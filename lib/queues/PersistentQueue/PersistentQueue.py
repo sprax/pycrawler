@@ -197,6 +197,12 @@ class PersistentQueue:
         the marshal module is used to (de)serialize queue items, but you
         may specify an alternative serialize module/instance with the
         optional 'marshal' argument (e.g. pickle).
+
+        'unlocked' indicates whether this Queue can operate with or
+        without a mutex.  When 'unlocked' is True, then method calls
+        will not attempt to acquire the file-based mutex.
+
+        'compress' indicates whether or not to gzip the flat files.
         """
         assert cache_size > 0, "Cache size must be larger than 0"
         self._cache_size = cache_size
@@ -586,16 +592,17 @@ class PersistentQueue:
         finally:
             self._mutex.release()
 
-    def put(self, obj):
+    def put(self, nd):
         """
-        Put the item 'obj' on the queue.
+        Put a copy of the nameddict subclass 'nd' on the queue.
         """
-        #syslog("%s doing a put of: %s" % (self._data_path, obj))
+        #syslog("%s doing a put of: %s" % (self._data_path, nd))
         self._mutex.acquire()
         try:
             if self._multiprocessing:
                 self._open()
-            self._put_cache.append(copy.copy(obj))
+            nd = copy.copy(nd)
+            self._put_cache.append(nd)
             if len(self._put_cache) >= self._cache_size:
                 self._split()
         finally:
