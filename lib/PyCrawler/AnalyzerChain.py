@@ -51,10 +51,9 @@ class FetchInfo(Analyzable):
         "depth": 0,
         "last_modified": 0,
         "http_response": None,
-        "state": None,
+        "state": 0,
         "start": 0.,
         "end": 0.,
-        "status": 0,
         "errno": 0,
         "errmsg": '',
         "len_fetched_data": 0,
@@ -66,15 +65,12 @@ class FetchInfo(Analyzable):
     # This establishes the order of the fields in instances of
     # PersistentQueue managed by CrawlStateManager
     _key_ordering = [
-        "docid", "state", "score", 
-        "depth", "last_modified", "http_response", 
-        "relurl",
-        "content_data"]
+        "docid", "depth", "score", "last_modified", "http_response", 
+        "relurl", "content_data"]
 
-    _val_types = [str, int, float, 
-                  int, int, int, 
-                  str, SafeStr,
-                  SafeStr]
+    _val_types = [
+        str, int, float, int, int, 
+        str, SafeStr]
 
     _sort_key = 0
 
@@ -89,6 +85,12 @@ class FetchInfo(Analyzable):
         Analyzable.__init__(self, attrs)
         if url is not None:
             self.hostkey, self.relurl = URL.get_hostkey_relurl(url)
+        if self.hostkey:
+            self.set_external_attrs()
+
+    def set_external_attrs(self):
+        "computes properties that require the self.hostkey"
+        assert bool(self.hostkey), "FetchInfo without hostkey! class = %s" % type(self)
         self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
         self.docid = URL.make_docid(self.hostkey, self.relurl)
 
@@ -98,7 +100,7 @@ class FetchInfo(Analyzable):
         link in the page.
         """
         infos = []
-        for hostkey, recs in yzable.links:
+        for hostkey, recs in self.links:
             for relurl, depth, last_modified, http_response, content_data in recs:
                 infos.append(FetchInfo({
                             "hostkey": hostkey,
@@ -106,16 +108,53 @@ class FetchInfo(Analyzable):
                             "depth": depth}))
         return infos
 
+    @classmethod
+    def accumulate(cls, acc_state, line):
+        """
+        De-duplicates link information by:
+
+            summing scores (odds)
+
+            maximizing depth (negative numbers mean farther from seed)
+
+            maximizing last_modified, and keeping the most recent
+            http_response and content_data
+            
+        """
+        if line == "":
+            # previous state was last record, so cause break
+            return None, cls.dumps(acc_state)
+        current = cls.loads(line)
+        if acc_state is None:
+            # first pass accumulation
+            return current, None
+        if current == acc_state:
+            # same docid, so accumulate before returning
+            acc_state.score += current.score
+            acc_state.depth = max(
+                acc_state.depth, 
+                current.depth)
+            if  acc_state.last_modified < current.last_modified:
+                acc_state.last_modified = current.last_modified
+                acc_state.http_response = current.http_response
+                acc_state.content_data  = current.content_data
+            return acc_state, None
+        else:
+            # new one! give back a serialized form as second value,
+            # and 'current' becomes the acc_state:
+            syslog(LOG_DEBUG, "accumulated a link for: %s" % cls.dumps(acc_state))
+            syslog("FetchInfo I am? %s" % str(type(cls)))
+            return current, cls.dumps(acc_state)
+
 class InvalidAnalyzer(Exception): pass
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"
-    def __init__(self, go=None, debug=False):
+    def __init__(self, go=None, debug=None):
         """
         Setup inQ and go Event
         """
-        self._debug = debug
-        Process.__init__(self, go)
+        Process.__init__(self, go, debug)
         self.inQ  = multiprocessing.Queue(10)
         self._yzers = []
 
@@ -152,7 +191,8 @@ class AnalyzerChain(Process):
             for pos in range(len(self._yzers)):
                 queues.append(multiprocessing.Queue(10))
                 (yzer, copies) = self._yzers[pos]
-                yzers = [yzer(queues[pos], queues[pos + 1])
+                yzers = [yzer(queues[pos], queues[pos + 1], 
+                              debug=self._debug)
                          for copy in range(copies)]
                 for yzer in yzers:
                     yzer.start()
@@ -161,12 +201,12 @@ class AnalyzerChain(Process):
             yzable = None
             in_flight = 0
             total_processed = 0
-            while self.go.is_set() or in_flight > 0:
-                syslog(
-                    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
-                        % (in_flight, total_processed,
-                           self.inQ.qsize(),
-                           multiprocessing.active_children()))
+            while self._go.is_set() or in_flight > 0:
+                #syslog(
+                #    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
+                #        % (in_flight, total_processed,
+                #           self.inQ.qsize(),
+                #           multiprocessing.active_children()))
                 try:
                     yzable = self.inQ.get_nowait()
                     in_flight += 1
@@ -224,11 +264,11 @@ class Analyzer(Process):
     .cleanup() and set the 'name' attr.
     """
     name = "Analyzer Base Class"
-    def __init__(self, inQ, outQ):
+    def __init__(self, inQ, outQ, debug):
         """
         Sets up an inQ, outQ
         """
-        Process.__init__(self)
+        Process.__init__(self, go=None, debug=debug)
         self.inQ  = inQ
         self.outQ = outQ
 
@@ -240,7 +280,7 @@ class Analyzer(Process):
             self.prepare_process()
             self.prepare()
             syslog(LOG_DEBUG, "Starting.")
-            while self.go.is_set():
+            while self._go.is_set():
                 try:
                     yzable = self.inQ.get_nowait()
                 except Queue.Empty:
