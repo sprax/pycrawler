@@ -70,7 +70,7 @@ class FetchInfo(Analyzable):
 
     _val_types = [
         str, int, float, int, int, 
-        str, SafeStr]
+        SafeStr, SafeStr]
 
     _sort_key = 0
 
