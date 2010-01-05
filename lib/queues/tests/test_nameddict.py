@@ -46,7 +46,7 @@ def test(SomeND, attrs):
 
     # dumping a single item and reloading it:
     s = MyND1.dumps(d)
-    pd = MyND1.loads(s)
+    pd = MyND1.loads(s)[0]
     assert d == pd and d.c == pd.c, "loads(dumps(d)) != d: %s -> %s -> %s" % (repr(str(d)), repr(str(s)), repr(str(pd)))
     print "... dumping a single item and reloading it works ..."
 
@@ -124,17 +124,17 @@ def sorting_in_persistent_queue():
     pq.close()
     print "passed sorting in persistent queue tests"
 
-def merging():
+def merging(ELEMENTS=100, NUM_QUEUES=5):
     MyND1._sort_key = 1
     # create a bunch of random data in four queues
     NDs = []
     queues = []
-    for i in range(5):
+    for i in range(NUM_QUEUES):
         pq = PersistentQueue(
             os.path.join(data_test_dir, str(i)), 
             marshal=MyND1)
         queues.append(pq)
-        for i in range(1000):
+        for i in range(ELEMENTS):
             ND = MyND1({"a": random()})
             NDs.append(ND)
             pq.put(ND)
@@ -156,7 +156,7 @@ def merging():
             "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
         prev = ND.get_sort_val()
     NDs.sort()
-    for i in range(5000):
+    for i in range(NUM_QUEUES * ELEMENTS):
         a = NDs.pop()
         b = newNDs.pop()
         assert a != b, "non-identical instances at %d: %s != %s" % (i, a, b)

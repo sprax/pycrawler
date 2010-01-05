@@ -9,6 +9,7 @@ __version__ = "0.1"
 
 import os
 import sys
+import copy
 import Queue
 import shutil
 import random
@@ -22,6 +23,12 @@ from optparse import OptionParser
 sys.path.insert(0, os.getcwd())
 import PersistentQueue
 
+class MyND0(PersistentQueue.nameddict):
+    _defaults = {"a": None}
+    _key_ordering = ["a"]
+    _val_types = [int]
+    _sort_key = 0
+
 class MyND1(PersistentQueue.nameddict):
     _defaults = {"a": None}
     _key_ordering = ["a"]
@@ -31,7 +38,7 @@ class MyND1(PersistentQueue.nameddict):
 class MyND2(PersistentQueue.nameddict):
     _defaults = {"a": None}
     _key_ordering = ["a"]
-    _val_types = [float]
+    _val_types = [int]
     _sort_key = 0
     # do not accumulate
     accumulator = None
@@ -61,10 +68,10 @@ def test_mutex():
 def speed_test(data_path, ELEMENTS=50000, p=None, compress=True):
     """run speed tests and average speeds of put and get"""
     if p is None:
-        p = PersistentQueue.PersistentQueue(data_path, 10, MyND1, compress=compress)
+        p = PersistentQueue.PersistentQueue(data_path, 10, MyND0, compress=compress)
     start = time()
     for a in range(ELEMENTS):
-        p.put(MyND1({"a": a}))
+        p.put(MyND0({"a": a}))
     p.sync()
     end = time()
     elapsed = start - end 
@@ -131,8 +138,9 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
         randomized.append(element)
     # put it in the queue
     for a in randomized:
-        p.put(MyND1({"a": a}))
+        p.put(MyND2({"a": a}))
     print "put %d elements into the queue in random order" % len(randomized)
+    #for i in range(p._head, p._tail): print ", ".join(["%d" % int(float(x)) for x in open(os.path.join(p._data_path, str(i))).read().splitlines()])
     # sync but do not close
     p.sync()
     # this could take time
@@ -157,7 +165,9 @@ def sort_test(data_path, ELEMENTS=1000, p=None, compress=False, compress_temps=F
     assert len(vals) == len(answer), \
         "Got back different number of results" + \
         "(%d) than expected (%d)" % (len(vals), len(answer))
-    assert vals == answer, "Incorrectly sorted result:\nvals  : %s\nanswer: %s" % (vals, answer)
+    vals2 = copy.copy(vals)
+    vals2.sort()
+    assert vals == answer, "Incorrectly sorted result:\nvals  : %s\nwouldbe:%s\nanswer: %s" % (vals, vals2, answer)
     for i in range(len(vals)-1):
         assert vals[i] <= vals[i+1], "Incorrectly sorted result:\nvals: %s\nanswer: %s" % (vals, answer)
     print "Sorting succeeded.  Sort took %s seconds, %.2f records/second" \
@@ -180,7 +190,7 @@ def merge_test(data_path, ELEMENTS=1000):
     queues = [p]
     for i in range(num_queues - 1):
         queues.append(
-            PersistentQueue.PersistentQueue(data_path + "/%d" % i, 10, MyND1))
+            PersistentQueue.PersistentQueue(data_path + "/%d" % i, 10, MyND2))
     # define an answer
     answer = range(ELEMENTS)
     # randomize it before putting into queue
@@ -193,7 +203,7 @@ def merge_test(data_path, ELEMENTS=1000):
     for a in randomized:
         # pick a queue at random
         pq = queues[int(random.random() * len(queues))]
-        p.put(MyND1({"a": a}))
+        p.put(MyND2({"a": a}))
     # sync but do not close
     for pq in queues:
         pq.sync()
@@ -278,7 +288,7 @@ def triqueue_test(data_path, ELEMENTS=1000):
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
     tq = PersistentQueue.TriQueue(data_path, marshal=MyND1)
-    for i in range(1000):
+    for i in range(ELEMENTS):
         v = random.random()
         tq.put(MyND1({"a": v}))
     print "inQ has\t\t%d" % len(tq._inQ)
@@ -291,7 +301,7 @@ def triqueue_test(data_path, ELEMENTS=1000):
     log("pendingQ has\t%d" % len(tq._pendingQ))
     i = 0
     tq.acquire()
-    while i < 500:
+    while i < ELEMENTS/2:
         try:
             #start = time()
             val = tq.get_nowait()
@@ -301,29 +311,27 @@ def triqueue_test(data_path, ELEMENTS=1000):
             #log("Got a result: %s" % val)
             i += 1
         except PersistentQueue.TriQueue.Blocked:
-            log("Waiting for PersistentQueue.TriQueue to unblock, Merger.is_alive() --> " + str(merger.is_alive()))
+            log("triqueue_test: Waiting for PersistentQueue.TriQueue to unblock, Merger.is_alive() --> " + str(merger.is_alive()))
             sleep(1)
         except Queue.Empty:
-            log("Waiting for results to appear in queue")
+            log("triqueue_test: Waiting for results to appear in queue")
             sleep(1)
         except PersistentQueue.TriQueue.Syncing:
             log("triqueue_test: Waiting for merged results, Merger.is_alive() --> " + str(merger.is_alive()))
             sleep(1)
-    log("Done getting results.  Now closing.")
     tq.release()
     tq.close()
-    log("Test complete.")
+    log("TriQueue test passed.")
 
 def triqueue_sort_test(data_path, ELEMENTS=1000):
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
     tq = PersistentQueue.TriQueue(data_path, marshal=MyND1)
-    for i in range(1000):
-        v = [str(random.random()), str(random.random())]
-        tq.put(MyND1({"a": v}))
+    for i in range(ELEMENTS):
+        tq.put(MyND1({"a": random.random()}))
     merger = tq.sync()
     i = 0
-    while i < 500:
+    while i < ELEMENTS/2:
         try:
             val = tq.get_nowait()
             val = val.a
@@ -338,7 +346,52 @@ def triqueue_sort_test(data_path, ELEMENTS=1000):
         except PersistentQueue.TriQueue.Syncing:
             log("triqueue_sort_test: Waiting for merged results")
             sleep(1)
-    print "Done getting results.  Now closing."
+    print "Sort test passed.  Now closing."
+    tq.close()
+
+class MyND3(PersistentQueue.nameddict):
+    _defaults = {"a": None, "b": None}
+    _key_ordering = ["a", "b"]
+    _val_types = [float, str]
+    _sort_key = 1  # for grouping on "b"
+
+class MyND4(MyND3):
+    _sort_key = 0  # for sorting on "a"
+
+def triqueue_second_sort_test(data_path):
+    if os.path.exists(data_path):
+        shutil.rmtree(data_path)
+    tq = PersistentQueue.TriQueue(data_path, marshal=MyND3, sorting_marshal=MyND4)
+    for b in ["foo", "bar", "baz"]:
+        for i in range(10):
+            tq.put(MyND3({"a": random.random(), "b": b}))
+    merger = tq.sync()
+    #t = open(os.path.join(tq._readyQ._data_path, str(tq._readyQ._tail)), "r")
+    #print("---".join(t.read().splitlines()))
+    ret = []    
+    while True:
+        try:
+            val = tq.get_nowait()
+            ret.append(val)
+        except PersistentQueue.TriQueue.ReadyToSync:
+            log("caught ReadyToSync, so queue is empty.")
+            break
+        except PersistentQueue.TriQueue.Blocked:
+            log("triqueue_second_sort_test: Waiting for PersistentQueue.TriQueue to unblock")
+            sleep(1)
+        except Queue.Empty:
+            log("triqueue_second_sort_test: Waiting for results to appear in queue")
+            sleep(1)
+        except PersistentQueue.TriQueue.Syncing:
+            log("triqueue_second_sort_test: Waiting for merged results")
+            sleep(1)
+    print "Done getting results."
+    ret_str = ", ".join([str(x) for x in ret])
+    assert len(ret) == 3, "got other than expected three results:\n%s" % ret_str
+    prev = 0
+    for ND in ret:
+        assert prev <= ND.a, "out of sorted order: " + ret_str
+        prev = ND.a
     tq.close()
     print "Test complete."
 
@@ -386,6 +439,7 @@ if __name__ == "__main__":
     parser.add_option("--speed", dest="speed", default=False, action="store_true", help="run speed test")
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
     parser.add_option("--triqueue", dest="triqueue", default=False, action="store_true", help="run the PersistentQueue.TriQueue tests")
+    parser.add_option("--second_sort", dest="second_sort", default=False, action="store_true", help="run the PersistentQueue.TriQueue tests with a sorting_marshal")
     parser.add_option("--sort", dest="sort", default=False, action="store_true", help="run test of sorting")
     parser.add_option("--merge", dest="merge", default=False, action="store_true", help="run test of sorted merging of multiple queues")
     parser.add_option("--exceptions", dest="exceptions", default=False, action="store_true", help="run tests of exceptions that can be raised")
@@ -407,18 +461,20 @@ if __name__ == "__main__":
         process_test(options.dir, options.num)
     elif options.sort:
         rmdir(options.dir)
-        sort_test(options.dir, options.num, compress=False, compress_temps=False)
-        rmdir(options.dir)
-        sort_test(options.dir, options.num, compress=False, compress_temps=True)
-        rmdir(options.dir)
         sort_test(options.dir, options.num, compress=True, compress_temps=False)
         rmdir(options.dir)
         sort_test(options.dir, options.num, compress=True, compress_temps=True)
+        rmdir(options.dir)
+        sort_test(options.dir, options.num, compress=False, compress_temps=False)
+        rmdir(options.dir)
+        sort_test(options.dir, options.num, compress=False, compress_temps=True)
         rmdir(options.dir)
     elif options.merge:
         merge_test(options.dir, options.num)
     elif options.triqueue:
         triqueue_test(options.dir, options.num)
+    elif options.second_sort:
+        triqueue_second_sort_test(options.dir)
     elif options.exceptions:
         exceptions_tests()
     else:
@@ -434,7 +490,8 @@ if __name__ == "__main__":
         merge_test(options.dir, options.num)
         rmdir(options.dir)
         triqueue_test(options.dir, options.num)
-
+        triqueue_sort_test(options.dir, options.num)
+        triqueue_second_sort_test(options.dir)
         exceptions_tests()
         
     if not options.keep:
