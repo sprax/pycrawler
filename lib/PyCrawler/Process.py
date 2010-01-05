@@ -15,35 +15,37 @@ class Process(multiprocessing.Process):
     used throughout PyCrawler.  These include a go event and syslog
     usage.
     """
-    debug = False
+    _debug = False
 
-    def __init__(self, go=None):
+    def __init__(self, go=None, debug=None):
         """
         Keep self.name as its previously set value, or replace it with
         "Unnamed"
 
-        If go is not provided, then create a self.go event, which
-        self.prepare will set.
+        If go is not provided, then create a self._go event, which
+        self.prepare_process will set.  self.stop() clears self._go.
         """
+        if debug is not None:
+            self._debug = debug
         if not hasattr(self, "name"):
             self.name = "Unnamed"
         multiprocessing.Process.__init__(self, name=self.name)
-        self.go = go or multiprocessing.Event()
+        self._go = go or multiprocessing.Event()
 
     def prepare_process(self):
         """
         Set the go Event and open the syslog
         """
-        #for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
-        #    signal(sig, SIG_IGN)
-        self.go.set()
+        for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
+            signal(sig, SIG_IGN)
+        self._go.set()
         openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
-        if not self.debug:
+        if not self._debug:
             setlogmask(LOG_UPTO(LOG_INFO))
 
     def stop(self):
         syslog(LOG_DEBUG, "Stop called.")
-        self.go.clear()
+        self._go.clear()
 
 def multi_syslog(level=LOG_DEBUG, msg=None, exc=None):
     """
@@ -67,6 +69,8 @@ def multi_syslog(level=LOG_DEBUG, msg=None, exc=None):
             level = LOG_DEBUG
         else:
             msg = "multi_syslog single argument neither str nor Exception: %s" % repr(level)
+    if exc is None and isinstance(msg, Exception):
+        msg = traceback.format_exc(exc)
     if msg is None:
         msg = ""
     if exc is not None:
