@@ -132,6 +132,7 @@ class nameddict(dict):
         return line
 
     class BadFormat(Exception): pass
+    class InvalidType(Exception): pass
 
     @classmethod
     def fromstr(cls, line):
@@ -160,7 +161,20 @@ class nameddict(dict):
             val_type = cls._val_types[attr_num]
             str_val = parts[attr_num]
             attrs[param] = cls.reconstitute(str_val, val_type)
-        return cls(attrs)
+        # create an instance using attrs
+        nd = cls(attrs)
+        # set attrs that are true for all such instances and are not
+        # stored in the serialized form:
+        nd.set_external_attrs()
+        return nd
+
+    def set_external_attrs(self):
+        """
+        Called by fromstr before returning a deserialized instance.
+        Subclasses should use this to compute any properties not
+        stored in the serialized form.
+        """
+        pass
 
     @staticmethod
     def reconstitute(str_val, val_type):
@@ -177,7 +191,10 @@ class nameddict(dict):
         elif val_type is SafeStr:
             val = urlsafe_b64decode(str_val)
         else:
-            val = val_type(str_val)
+            try:
+                val = val_type(str_val)
+            except Exception, exc:
+                raise nameddict.InvalidType("failed to apply %s to %s" % (val_type, str_val))
         return val
 
     def get_sort_val(self):
@@ -264,7 +281,7 @@ class nameddict(dict):
         if line == "":
             # previous state was last record, so cause break
             return None, cls.dumps(acc_state)
-        current = cls.loads(line)
+        current = cls.loads(line)[0]
         if acc_state is None:
             # first pass accumulation
             return current, None
@@ -294,7 +311,7 @@ class nameddict(dict):
             items = [items]
         if cls._sort_key is not None:
             items.sort()
-        return "\n".join([str(x) for x in items]) + "\n"
+        return "\n".join([str(x) for x in items])
 
     @classmethod
     def dump(cls, items, output):
@@ -326,7 +343,6 @@ class nameddict(dict):
         ret = []
         for line in input.splitlines():
             if line:
-                ret.append(cls.fromstr(line))
-        if len(ret) == 1:
-            ret = ret[0]
+                nd = cls.fromstr(line)
+                ret.append(nd)
         return ret
