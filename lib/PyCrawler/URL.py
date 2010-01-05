@@ -38,6 +38,10 @@ TODO:
         Return a 6-tuple: (scheme, netloc, path, params, query, fragment).
 """
 
+def make_hostbin(hostid):
+    "Returns the hostbin for a hostid"
+    return "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
+
 def make_hostid_bin(hostkey):
     """
     Returns the hostid for the hostkey, which is just the hexdigest of
@@ -45,7 +49,7 @@ def make_hostid_bin(hostkey):
     tiers built from the hostid.
     """
     hostid = md5(hostkey).hexdigest()
-    hostbin = "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
+    hostbin = make_hostbin(hostid)
     return hostid, hostbin
 
 def make_docid(hostkey, relurl):
@@ -142,6 +146,18 @@ class packer:
             depth, last_modified, http_response, 
             content_data,
            )
+
+    def add_fetch_info(self, fetch_info):
+        """
+        calls update using attrs of fetch_info
+        """
+        self.update(
+            fetch_info.hostkey,
+            fetch_info.relurl,
+            fetch_info.depth,
+            fetch_info.last_modified,
+            fetch_info.http_response,
+            fetch_info.content_data)
 
     def update(
         self, hostkey, relurl, depth, 
