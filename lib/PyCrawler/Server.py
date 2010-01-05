@@ -19,6 +19,7 @@ Actually finish this --- this does not work yet; not done.
 import os
 import Queue
 import daemon  # from PyPI
+import pprint
 import traceback
 import multiprocessing
 import multiprocessing.managers
@@ -59,12 +60,16 @@ class Sender(Process):
         syslog(LOG_DEBUG, "Starting.")
         try:
             self.prepare_process()
-            while self.go.is_set():
+            while self._go.is_set():
                 try:
                     fetch_info = self.inQ.get_nowait()
                 except Queue.Empty:
                     sleep(1)
-                fmc = FetchServerClient(self.hostbins[bin], self.authkey)
+                fmc = FetchServerClient(
+                    self.hostbins.get_fetch_server(fetch_info.hostbin), 
+                    self.authkey)
+                fmc.put(fetch_info)
+                fmc.close()
         except Exception, exc:
             multi_syslog(traceback.format_exc(exc))
         syslog(LOG_DEBUG, "Exiting.")
@@ -83,7 +88,7 @@ class FetchServer(Process):
         """
         self.id = "%s:%s" % address
         self.name = "FetchServer:%s" % self.id
-        self.debug = debug
+        self._debug = debug
         Process.__init__(self)
         self.address = address
         self.authkey = authkey
@@ -93,9 +98,10 @@ class FetchServer(Process):
         self.reload.clear()
         mgr = multiprocessing.Manager()
         self.relay = mgr.Namespace()
-        self.relay.next_packer = None
         self.config = None
         self.inQ = multiprocessing.Queue(1000)
+        self.outQ = None
+        self.packerQ = None
         self.ManagerClass.register("put", callable=self.inQ.put)
         self.ManagerClass.register("stop", callable=self.stop)
         self.ManagerClass.register("set_config", callable=self.set_config)
@@ -142,70 +148,68 @@ class FetchServer(Process):
             self.manager.start()
             # make a queue for passing records to sender
             self.outQ = multiprocessing.Queue(1000)
-            # launch self.Sender to send hostbins assigned to other
-            # FetchServers
-            self.sender = Sender(
-                self.go,
-                self.outQ,
-                self.id,
-                self.config["hostbins"],
-                authkey = self.authkey)
-            self.sender.start()
+            self.packerQ = multiprocessing.Queue(1000)
             syslog(LOG_DEBUG, "Entering main loop")
-            while self.go.is_set():
+            while self._go.is_set():
                 if self.reload.is_set():
                     if self.valid_new_config():
-                        syslog(LOG_DEBUG, "got valid config")
                         self.config = copy(self.relay.config)
-                        # csm handles disk interactions with state
-                        syslog(LOG_DEBUG, "creating & starting CrawlStateManager")
-                        self.csm = CrawlStateManager(
-                            self.inQ, self.outQ, self.relay, self.config)
-                        self.csm.start()
+                        self.start_children()
                     self.reload.clear()
                 if self.config is None:
-                    syslog(LOG_DEBUG, "waiting for config")
+                    syslog(LOG_DEBUG, "Waiting for config")
                     sleep(1)
                     continue
-                # Get a URLs from csm, these will be selected by scoring
-                if self.relay.next_packer is None:
-                    syslog(LOG_DEBUG, "Waiting for packer...")
-                    sleep(1)
-                    continue
-                else:
-                    packer = copy(self.relay.next_packer)
-                    self.relay.next_packer = None
-                    syslog(LOG_INFO, "Got a packer with %d hosts" % len(packer.hosts))
-                # Get an AnalyzerChain. This allows csm to record data as
-                # it streams out of fetcher.  The config could cause csm
-                # to add more Analyzers to the chain.
-                syslog(LOG_DEBUG, "Getting an AnalyzerChain")
+                # Get an AnalyzerChain. This allows csm to record data
+                # as it streams out of fetcher.  The config could
+                # cause csm to add more Analyzers to the chain.
                 ac = self.csm.get_analyzerchain()
-                syslog(LOG_DEBUG, "Creating a Fetcher")
-                # eventually could do multiple fetchers here...
-                self.fetcher = Fetcher(
-                    outQ = ac.inQ,
-                    params = self.config["fetcher_options"])
-                # replace fetcher's packer before starting it
-                self.fetcher.packer = packer
-                syslog("starting fetcher")
-                self.fetcher.start()
-                while self.fetcher.is_alive():
-                    syslog(LOG_DEBUG, "Fetcher is alive")
-                    self.config["heart_beat"] = time()
-                    sleep(1)
-                ac.stop()
+                while self._go.is_set() and not self.reload.is_set():
+                    syslog(LOG_DEBUG, "Creating & start Fetcher")
+                    # could do multiple fetchers here...
+                    self.fetcher = Fetcher(
+                        go = self._go,
+                        outQ = ac.inQ,
+                        packerQ = self.packerQ,
+                        params = self.config["fetcher_options"])
+                    self.fetcher.start()
+                    while self._go.is_set() and self.fetcher.is_alive():
+                        #syslog(LOG_DEBUG, "Fetcher is alive.")
+                        #self.config["heart_beat"] = time()
+                        sleep(1)
         except Exception, exc:
-            syslog(traceback.format_exc(exc))
-        syslog("stopping csm")
-        if self.csm is not None:
-            self.csm.stop()
-        syslog("calling manager.shutdown()")
-        self.manager.shutdown()
-        while len(multiprocessing.active_children()) > 0:
-            syslog("waiting for: " + str(multiprocessing.active_children()))
-            sleep(1)
-        syslog("exiting main loop")
+            multi_syslog(exc)
+            self.stop()
+            #for child in multiprocessing.active_children():
+            #    try: child.terminate()
+            #    except: pass
+        finally:
+            if self.manager:
+                syslog("Attempting manager.shutdown()")
+                self.manager.shutdown()
+            while len(multiprocessing.active_children()) > 0:
+                syslog("Waiting for: " + str(multiprocessing.active_children()))
+                sleep(1)
+            syslog("Exiting FetchServer.")
+
+    def start_children(self):
+        """
+        Creates a CrawlStateManager and a Sender using self.config
+        """
+        # csm handles disk interactions with state
+        syslog(LOG_DEBUG, "creating & starting CrawlStateManager")
+        self.csm = CrawlStateManager(
+            self._go, self.id, self.inQ, self.outQ, self.packerQ, self.config)
+        self.csm.start()
+        # launch self.Sender to send hostbins assigned to other
+        # FetchServers
+        self.sender = Sender(
+            self._go,
+            self.outQ,
+            self.id,
+            self.config["hostbins"],
+            authkey = self.authkey)
+        self.sender.start()
 
     def valid_new_config(self):
         """returns bool indicating whether 'config' is valid, i.e. has
@@ -221,8 +225,8 @@ class FetchServer(Process):
         if "hostbins" not in config:
             syslog("invalid config: lacks hostbins")
             return False
-        elif self.id not in config["hostbins"]:
-            syslog("invalid config: its hostbins lacks %s" % self.id)
+        elif not hasattr(config["hostbins"], "_fetch_servers"):
+            syslog("invalid config: its hostbins is wrong type")
             return False
         elif "frac_to_fetch" not in config or \
                 not isinstance(config["frac_to_fetch"], float):
@@ -236,6 +240,9 @@ class FetchServer(Process):
         return True
 
 class FetchClient:
+    """
+    TODO: can this be a subclass of BaseManager?  Can this be cleaner?
+    """
     def __init__(self, address=("", PORT), authkey=AUTHKEY):
         class LocalFetchManager(multiprocessing.managers.BaseManager): pass
         LocalFetchManager.register("put")
@@ -254,68 +261,105 @@ class FetchClient:
         try:
             self.fm.put(yzable)
         except Exception, exc:
-            syslog(LOG_NOTICE, traceback.format_exc(exc))
+            multi_syslog(exc)
 
-def default_id(hostname):
-    return "%s:%s" % (hostname, PORT)
+def default_port(hostnames=[""]):
+    return ["%s:%s" % (hostname, PORT) for hostname in hostnames]
 
-def get_ranges(num):
-    assert num > 0 and isinstance(num, int)
-    step_size = floatfromhex("F" * num)
-    ranges = []
-    for i in range(num):
-        ranges.append([step_size * num, step_size * (num + 1)])
-    return ranges
+class Hostbins:
+    def __init__(self, list_of_addresses):
+        self._fetch_servers = list_of_addresses
 
+    def __getinitargs__(self):
+        "enable pickling"
+        return (self._fetch_servers,)
+
+    def get_fetch_server(self, hostbin):
+        """
+        Return the fetch server address for the given hostbin
+        """
+        if len(self._fetch_servers) == 1:
+            return self._fetch_servers[0]
+        # strip slashes
+        hostbin = hostbin[:2] + hostbin[3:5] + hostbin[6:9]
+        # convert string to int
+        hostbin = int(hostbin, 16)
+        # use modular arithmetic to index into _fetch_servers list
+        hostbin = hostbin % len(self._fetch_servers)
+        return self._fetch_servers[hostbin]
+        
 class TestHarness(Process):
     name = "FetchServerTestHarness"
-    debug = True
+    def __init__(self, debug=None):
+        Process.__init__(self, go=None, debug=debug)
     def run(self):
         self.prepare_process()
         try:
-            syslog("making a FetchServer")
-            fs = FetchServer(debug=True)
+            syslog("Creating & starting FetchServer")
+            fs = FetchServer(debug=self._debug)
             fs.start()
-            fc = FetchClient()
-            syslog("calling FetchClient.set_config")
+            syslog("Creating & configurating FetchClient")
+            fc = FetchClient()            
             fc.set_config({
-                    "debug": True,
-                    "hostbins": {default_id(""): get_ranges(1)[0]},
+                    "debug": self._debug,
+                    "hostbins": Hostbins(default_port()),
                     "frac_to_fetch": 0.4,
                     "data_path": "/var/lib/pycrawler",
                     "fetcher_options": {
                         #"SIMULATE": 3,
+                        "_debug": self._debug,
                         "DOWNLOAD_TIMEOUT":  60,
                         "FETCHER_TIMEOUT":   30000,
                         }
                     })
-            syslog("done with FetchClient.set_config")
-            sleep(3)
-            syslog("adding url")
+            syslog("FetchClient.add_url(\"http://cnn.com\")")
             fc.add_url("http://cnn.com")
-            syslog("add_url returned")
-            #sleep(30)
-            #fc.stop()
-            #syslog("called stop on FetchClient")
-            while fs.is_alive():
-                sleep(1)
-                syslog("waiting for: " + str(multiprocessing.active_children()))
-            syslog("Test is done.")
+            while self._go.is_set() and fs.is_alive():
+                sleep(.1)
+            # call stop on FetchClient, not FetchServer
+            try:
+                syslog("fc.stop()")
+                fc.stop()
+            except Exception, exc:
+                syslog("FetchClient.stop() --> %s" % exc)
+                try:
+                    syslog("fs.stop()")
+                    fs.stop()
+                except Exception, exc:
+                    syslog("FetchServer.stop() --> %s" % exc)
+                    try:
+                        fs.terminate()
+                    except Exception, exc:
+                        syslog("FetchServer.terminate() --> %s" % exc)
+            # if anything is alive, terminating it
+            for child in multiprocessing.active_children():
+                syslog("Terminating: %s" % repr(child))
+                try: 
+                    child.terminate()
+                except Exception, exc: 
+                    multi_syslog(exc)
         except Exception, exc:
-            multi_syslog(LOG_NOTICE, traceback.format_exc(exc))
+            multi_syslog(exc)
+        finally:
+            syslog("Exiting TestHarness.")
 
 if __name__ == "__main__":
-    test = TestHarness()
+    from optparse import OptionParser
+    parser = OptionParser("runs a TestHarness instance")
+    parser.add_option("--debug", action="store_true", dest="debug", default=False, help="Sets debug to True everywhere.")
+    (options, args) = parser.parse_args()
+
+    test = TestHarness(debug=options.debug)
     test.start()
 
     from signal import signal, SIGINT, SIGHUP, SIGTERM, SIGQUIT
     def stop(a, b):
-        print "attempting to stop test"
+        print "Attempting test.stop()"
         test.stop()
     for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
         signal(sig, stop)
 
-    print "waiting"
+    print "Waiting for TestHarness to exit."
     while test.is_alive():
         sleep(1)
     
