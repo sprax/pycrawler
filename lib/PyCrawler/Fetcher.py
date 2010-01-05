@@ -64,7 +64,7 @@ import AnalyzerChain
 import PriorityQueue
 from time import time, sleep
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Process import Process
+from Process import Process, multi_syslog
 try:
     from cStringIO import StringIO
 except:
@@ -90,16 +90,61 @@ class HostInfo(AnalyzerChain.Analyzable):
         "start_time", "end_time"]
 
     _val_types = [
-        float, str, str,
+        int, str, str,
         int, int,
-        float, float]
+        int, int]
 
-    def __init__(self, attrs=None, key_ordering=None, val_types=None, url=None):
+    # this is used for grouping
+    _sort_key = 2
+
+    def __init__(self, attrs=None):
         """
-        
+        Creates a HostInfo with hostid and hostbin
         """
-        AnalyzerChain.Analyzable.__init__(self, attrs, key_ordering, val_types)
+        AnalyzerChain.Analyzable.__init__(self, attrs)
         self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
+
+    @classmethod
+    def accumulator(cls, acc_state, line):
+        """
+        De-duplicates host records, keeping only one record per host
+        """
+        if line == "":
+            # previous state was last record, so cause break
+            return None, cls.dumps(acc_state)
+        current = cls.loads(line)[0]
+        if acc_state is None:
+            # first pass accumulation
+            return current, None
+        if current.hostkey == acc_state.hostkey:
+            # same as previous, so check which has content
+            if current.total_hits == 0 and current.total_bytes == 0 \
+                    and current.start_time == 0:
+                # cannot be new, so just ignore it
+                return acc_state, None
+            elif acc_state.total_hits == 0 and acc_state.total_bytes == 0 \
+                    and acc_state.start_time == 0:
+                # current represents a populated record for this host,
+                return current, None
+            else:
+                # pendingQ hitting inQ replacement, aggregate data:
+                current.total_bytes += acc_state.total_bytes
+                current.total_hits  += acc_state.total_hits
+                current.start_time = max(current.start_time, acc_state.start_time)
+                # bad, very bad: abstraction barriers all messed up
+                current.next_time =  current.start_time + \
+                    max(current.total_bytes / Fetcher.MAX_BYTE_RATE,
+                        current.total_hits  / Fetcher.MAX_HITS_RATE)
+                return current, None
+        else:
+            # new one! give back a serialized form as second value,
+            # and 'current' becomes the acc_state:
+            return current, cls.dumps(acc_state)
+
+# this is used for the second sort in the hostsQ (a TriQueue)
+class HostInfoSorting(HostInfo):
+    _sort_key = 0
+    accumulator = None
 
 class Host(PriorityQueue.Queue):
     """
@@ -149,7 +194,7 @@ class Host(PriorityQueue.Queue):
         # the queue.
         if 0 <= self.robots_next < time():
             self.robots_next = -1  # set to pending
-            syslog(LOG_DEBUG, "put(/robots.txt)")
+            syslog(LOG_DEBUG, "put(%s/robots.txt)" % self.hostkey)
             robots_info = AnalyzerChain.FetchInfo({
                     "hostkey": self.hostkey, 
                     "relurl":  "/robots.txt",
@@ -163,7 +208,7 @@ class Host(PriorityQueue.Queue):
             url_info.state = ROBOTS_REJECTED
             self.fetcher.out_proc(url_info)
         else:
-            syslog(LOG_DEBUG, "put(%s)" % url_info.relurl)
+            syslog(LOG_DEBUG, "put(%s%s)" % (self.hostkey, url_info.relurl))
             PriorityQueue.Queue._put(self, (depth, url_info))
 
     def msg(self, step):
@@ -222,12 +267,12 @@ class Host(PriorityQueue.Queue):
                         self.remove(pair)
                         url_info.state = ROBOTS_REJECTED
                         self.fetcher.out_proc(url_info)
-        syslog(LOG_DEBUG, "out_proc(%s)" % url_info.relurl)
+        syslog(LOG_DEBUG, "out_proc(%s%s)" % (self.hostkey, url_info.relurl))
         self.fetcher.out_proc(url_info)
         # should detect if all of the URLs are redirecting to a
         # different host, and thus this host should get destroyed.
 
-    def get_summary(self):
+    def get_hostinfo(self):
         return HostInfo({
                 "hostkey": self.hostkey,
                 "total_hits": self.total_hits,
@@ -255,8 +300,9 @@ these burst by waiting a compensatory time period.  Longer-term
 politeness requires state storage *outside* of the Fetcher class.
 
 The input method for giving URLs to a Fetcher instance is through its
-'packer' attribute, which is an instance of PyCrawler.URL.packer (see
-documentation for PyCrawler.URL).
+'packerQ' attribute, which is a multiprocessing.Queue filled with
+instances of PyCrawler.URL.packer (see documentation for
+PyCrawler.URL).
 
 The Fetcher class has an outQ that contains URLinfo instances with the
 results of a fetch and also HostInfo instances with host update
@@ -282,7 +328,9 @@ info.
 
     SIMULATE = 0
 
-    def __init__(self, go=None, outQ=None, params={}, **kwargs):
+    _debug = False
+
+    def __init__(self, go=None, outQ=None, packerQ=None, params={}, **kwargs):
         """
         If 'go' is None, then it creates and sets a go Event.
 
@@ -301,11 +349,10 @@ info.
             (self.CRAWLER_NAME, self.CRAWLER_HOMEPAGE)
         if not hasattr(self, "name"):
             self.name = self.CRAWLER_NAME
-        Process.__init__(self, go)
-        syslog("Created fetcher, useragent = %s" % self.USERAGENT)
-        syslog("fetcher process name = %s" % self.name)
+        Process.__init__(self, go, self._debug)
+        syslog("Created with useragent: %s" % self.USERAGENT)
         self.outQ = outQ
-        self.packer = URL.packer()
+        self.packerQ = packerQ
         self.pQ = PriorityQueue.Queue()
         self.m = None             # prep for first loop
         self.fetches = 0
@@ -316,24 +363,16 @@ info.
         self.idlelist = []
         self.freelist = []
 
-    def process_host(self, host_summary):
-        """A stub function that subclasses can override with their own
-        mechanisms for persisting host politeness information."""
-        pass
-
-    def replace_packer(self, packer):
-        self.packer = packer
-
     def init_curl(self):
         syslog("pycurl.global_init...")
         # This is not threadsafe.  See note above.
         pycurl.global_init(pycurl.GLOBAL_DEFAULT)
-        syslog(LOG_DEBUG, str(pycurl.version))
-        syslog(LOG_DEBUG, str(pycurl.version_info()))
+        syslog(str(pycurl.version_info()))
+        syslog(repr(pycurl.version))
         # This is the one (and only) CurlMulti object that this
         # Fetcher instance will use, until (unless) we pass
         # FETCHES_TO_LIVE and dereference it in cleanup()
-        syslog(LOG_DEBUG, "creating CurlMulti object")
+        syslog(LOG_DEBUG, "Creating CurlMulti object...")
         self.m = pycurl.CurlMulti()
         # Historically, there have been libcurl bugs associated with
         # pipelining.  It appears to work fine in v7.19.4.  Pipelining
@@ -341,7 +380,7 @@ info.
         # handshaking.  
         self.m.setopt(pycurl.M_PIPELINING, 1)
         self.m.handles = []
-        syslog(LOG_DEBUG, "allocating %d Curl objects" % self.MAX_CONNS)
+        syslog(LOG_DEBUG, "Allocating %d Curl objects..." % self.MAX_CONNS)
         for i in range(self.MAX_CONNS):
             try:
                 c = pycurl.Curl()
@@ -355,7 +394,7 @@ info.
                 # segfaulting or GILs,
                 syslog("failed pycurl.Curl(): %s" % str(e))
                 self.cleanup()
-                self.init_curl()
+                #self.init_curl()  why would we call this here?
                 break
             c.fp = None
             c.host = None
@@ -375,28 +414,6 @@ info.
         self.start_num_handles = 0
         self.fetches = 0
 
-    def out_proc(self, url_info):
-        """
-        Updates the Fetcher.packer with the fetch state of url_info;
-        put relurl into outQ; block if full, so process receiving data
-        limits fetcher.
-        """
-        self.urls_in_flight -= 1
-        # update the packer with this url_info, recall that the packer
-        # has two instances, one in the parent (which we ignore after
-        # starting) and one in the child, which we update here:
-        errors = self.packer.update(
-            url_info.hostkey,
-            url_info.relurl,
-            url_info.depth,
-            url_info.last_modified,
-            url_info.http_response,
-            url_info.content_data,
-           )
-        if errors: syslog(", ".join(["[%s]" % x for x in errors]))
-        syslog(LOG_DEBUG, "outQ.put(%s)" % url_info.relurl)
-        self.put_on_outQ(url_info)
-
     def retire(self, host):
         """Put all url_info and host summary  in outQ"""
         syslog(LOG_DEBUG, "%s retiring without processing %d URLs" % 
@@ -407,19 +424,33 @@ info.
             except Queue.Empty:
                 break
             self.out_proc(u)
-        self.put_on_outQ(host.get_summary())
-        del(host)  # nothing else should be referencing this host
+        host_info = host.get_hostinfo()
+        syslog("putting hostinfo: %s" % host_info)
+        self.outQ_put(host_info)
+        #del(host)  # nothing else should be referencing this host
 
-    def put_on_outQ(self, yzable):
-        "Put an Analyzable object into the outQ, handles blocking"
-        if self.outQ is not None:
-            while 1:
-                try:
-                    self.outQ.put_nowait(yzable)
-                    break
-                except Queue.Full:
-                    syslog(LOG_DEBUG, "blocking on full outQ")
-                    sleep(1)
+    def out_proc(self, url_info):
+        """
+        Decrement the urls_in_flight counter before putting url_info
+        into outQ.
+        """
+        self.urls_in_flight -= 1
+        self.outQ_put(url_info)
+
+    def outQ_put(self, yzable):
+        """
+        Put yzable in outQ and log while blocked.
+        
+        This blocks until the outQ accepts the yzable.
+        """
+        while self._go.is_set():
+            try:
+                self.outQ.put_nowait(yzable)
+                return
+            except Queue.Full:
+                syslog(LOG_DEBUG, "outQ is FULL")
+                sleep(1)
+        syslog("Gave up on blocked outQ")
 
     def schedule(self, host):
         """
@@ -433,7 +464,7 @@ info.
         if host.scheduled:
             return
         next = host.next_time()
-        if next > self.end_time:
+        if next > self.end_time or len(host) == 0:
             self.retire(host)
             return
         syslog(
@@ -444,7 +475,7 @@ info.
 
     def msg(self, step):
         msg = "%s%d / %d / %d (%d pending, next in %.0f sec), %d outQ, %d fetches" % (
-            step and "%s: "%step or "",
+            step and "%s: " % step or "",
             len(self.idlelist), 
             self.m and (len(self.m.handles) - len(self.freelist)) or 0,
             self.m and len(self.m.handles) or 0,
@@ -463,26 +494,35 @@ info.
         self.packer here, and allow the calling process to handle all
         such updates by getting info out of outQ.
         """
-        self.prepare_process()
-        # if SIMULATE is other than zero, it means fake it for that
-        # many seconds and then exit, used for testing
-        # PyCrawler.Server
-        if self.SIMULATE > 0:
-            syslog(
-                LOG_INFO, 
-                "fetcher is simulating with sleep(%d)" % self.SIMULATE)
-            sleep(self.SIMULATE)
-            return
-        self.go.set()
-        syslog(LOG_DEBUG, "Entering poll loop")
-        # urls_in_flight includes an attempt at /robots.txt for each host
-        self.urls_in_flight = len(self.packer) + len(self.packer.hosts)
-        self.hosts = self.packer.dump()
-        if self.urls_in_flight == 0:
-            syslog(LOG_NOTICE, "ERROR: tried to run without any URLs, exiting.")
-            return
-        # loop until no more in flight, or go has been cleared.
-        while self.urls_in_flight > 0 and self.go.is_set():
+        try:
+            self.prepare_process()
+            # if SIMULATE is other than zero, it means fake it for that
+            # many seconds and then exit, used for testing
+            # PyCrawler.Server
+            if self.SIMULATE > 0:
+                syslog(LOG_INFO, "simulating sleep(%d)" % self.SIMULATE)
+                sleep(self.SIMULATE)
+                return
+            syslog(LOG_DEBUG, "Entering poll loop")
+            try:
+                packer = self.packerQ.get_nowait()
+            except Queue.Empty:
+                syslog("Got no packer")
+                return
+            # urls_in_flight includes one /robots.txt for each host
+            self.urls_in_flight = len(packer) + len(packer.hosts)
+            self.hosts = packer.dump()
+            syslog("hosts: %s" % str(self.hosts))
+            if self.urls_in_flight == 0:
+                syslog(LOG_NOTICE, "ERROR: tried to run without any URLs, exiting.")
+                return
+            self.main()
+        except Exception, exc:
+            multi_syslog(exc)
+
+    def main(self):
+        """loop until no more in flight, or go has been cleared."""
+        while self.urls_in_flight > 0 and self._go.is_set():
             self.msg("outer loop")
             if time() > self.end_time:
                 break
@@ -500,7 +540,7 @@ info.
                 (self.start_num_handles, len(self.freelist), 
                  len(self.idlelist), len(self.m.handles))
             if self.hosts:  syslog(LOG_DEBUG, "creating %d Host objects" % len(self.hosts))
-            while self.hosts and self.go.is_set():
+            while self.hosts and self._go.is_set():
                 (hostkey, relurls) = self.hosts.pop()
                 host = Host(self, hostkey, relurls)
                 self.pQ.put((host.next_time(), host))
@@ -508,7 +548,7 @@ info.
                 syslog(LOG_DEBUG, "pQ is empty, and all conns are free... done.")
                 break
             # If there is a free curl object, try to get a host for it
-            while self.freelist and self.go.is_set():
+            while self.freelist and self._go.is_set():
                 self.msg("getif")
                 (priority, host) = self.pQ.getif(maxP = time())
                 if not host: break
@@ -520,7 +560,7 @@ info.
                     c.host.conns.append(c)
                     c.stream_count = 0  # num requests that could have been pipelined
                     self.idlelist.append(c)
-            while self.idlelist and self.go.is_set():
+            while self.idlelist and self._go.is_set():
                 url_info = None
                 c = self.idlelist.pop()
                 if c.host.failed >= self.MAX_FAILURES_PER_HOST \
@@ -531,7 +571,7 @@ info.
                     syslog(LOG_INFO, c.host.hostkey + "streamed enough, scheduling for later")
                     self.schedule(c.host)
                 else:
-                    while url_info is None and self.go.is_set():
+                    while url_info is None and self._go.is_set():
                         self.msg("host.get_nowait")
                         try:
                             priority, url_info = c.host.get_nowait()
@@ -554,8 +594,8 @@ info.
                             url_info = None
                             # loop again to try getting another
                             # url_info from this host
-                if not url_info:
-                    syslog(LOG_DEBUG, c.host.hostkey + "disconnecting")
+                if url_info is None:
+                    syslog(LOG_DEBUG, "disconnecting %s" % c.host.hostkey)
                     c.host.conns.remove(c)
                     c.host = None
                     self.freelist.append(c)
@@ -570,15 +610,18 @@ info.
                 self.start_num_handles += 1
             # Run the internal curl state machine for the multi stack
             num_handles = self.start_num_handles
-            while num_handles >= self.start_num_handles and self.go.is_set():
+            while num_handles >= self.start_num_handles and self._go.is_set():
                 syslog(LOG_DEBUG, "perform")
                 ret, num_handles = self.m.perform()
                 if ret != pycurl.E_CALL_MULTI_PERFORM:
                     break
+            #syslog("busted out of perform loop: num_handles(%d) start_num_handles(%d) _go.is_set()->%s" %
+            #       (num_handles, self.start_num_handles, self._go.is_set()))
             # Check for curl objects which have terminated, and add them to the freelist
-            while self.go.is_set():
-                syslog(LOG_DEBUG, "info_read")
+            while self._go.is_set():
                 num_q, ok_list, err_list = self.m.info_read()
+                syslog(LOG_DEBUG, "info_read: num_q(%d), ok_list(%d), err_list(%d)" % \
+                           (num_q, len(ok_list), len(err_list)))
                 finished_list = []
                 for c in ok_list:
                     # replace hostkey, relurl with effurl if possible.
@@ -651,7 +694,7 @@ info.
         """
         if self.m is not None:
             # rescue our url_info and hosts
-            syslog("cleaning up")
+            syslog("Cleanup after %d fetches" % self.fetches)
             for c in self.m.handles:
                 if c.url_info is not None:
                     syslog(LOG_DEBUG, "cleanup: c.url_info --> None")
@@ -677,7 +720,7 @@ info.
         tot = 0
         for priority, host in self.pQ:
             tot += len(host)  
-        syslog(LOG_DEBUG, "We have %d url_info dicts pending." % tot)
+        syslog(LOG_DEBUG, "%d url_info dicts pending" % tot)
         # simply dereference all the curl objects and let the gc handle it
         self.m = None
         self.idlelist = []
