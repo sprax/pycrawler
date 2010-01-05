@@ -24,22 +24,27 @@ import subprocess
 from time import time
 from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 
-# Filename used for index files, must not contain numbers
-INDEX_FILENAME = "index"
-
 class Mutex(object):
     """
     Class wrapping around a file that is used as a mutex.
     """
-    def __init__(self, lock_path):
+    def __init__(self, lock_path, 
+                 acquire_callback=None, release_callback=None):
         """
         If lock_path exists, then this simply points to it without
         attempting to acquire a lock.
 
         If lock_path does not exist, this creates it and leaves it
         unlocked.
+
+        If defined, the acquire_callback is a function that take no
+        arguments and gets called by acquire() after acquiring the
+        file lock.  Similarly for release_callback, except it is
+        called before releasing the file lock.
         """
         self._lock_path = lock_path
+        self._acquire_callback = acquire_callback
+        self._release_callback = release_callback
         self._fh = None
         if os.path.exists(lock_path):
             assert os.path.isfile(lock_path), \
@@ -79,20 +84,30 @@ class Mutex(object):
             if e[0] == 11:
                 return False
             raise
+        if self._acquire_callback is not None:
+            self._acquire_callback()
         return True
 
     def release(self):
-        "release lock and close file handle"
+        """
+        Releases lock and closes file handle.  Can be called multiple
+        times and will behave as though called only once.
+        """
         if self._fh is not None:
+            if self._release_callback is not None:
+                self._release_callback()
             fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
             self._fh.close()
             self._fh = None
 
     def available(self):
         "returns bool whether mutex is not locked"
-        if self._fh is None: 
+        acquired = self.acquire(block=False)
+        if acquired:
+            self.release()
             return True
-        return False
+        else:
+            return False
 
 class FakeMutex:
     """
@@ -125,6 +140,9 @@ class Writer:
         """
         Initialize a file-like object for writing directly to the
         files hidden inside a PersistentQueue (specified by 'queue')
+
+        'mutex' is passed separately from queue, so that the caller
+        can control whether close() releases the mutex.
         """
         self._queue = queue
         self._count = count
@@ -166,6 +184,9 @@ class Writer:
         """
         if self._count == self._queue._cache_size:
             self._split()
+        # ensure that line ends in a newline
+        if line[-1] != "\n":
+            line += "\n"
         self._current.write(line)
         self._count += 1
 
@@ -177,7 +198,6 @@ class Writer:
         self._queue._sync_index()
         self._current.close()
         if self._mutex is not None:
-            self._queue._open()
             self._mutex.release()
 # end of Writer class
 
@@ -188,7 +208,7 @@ class PersistentQueue:
     """
     Provides a Queue interface to a set of flat files stored on disk.
     """
-    def __init__(self, data_path, cache_size=512, marshal=pickle, compress=False, unlocked=False):
+    def __init__(self, data_path, cache_size=512, marshal=pickle, compress=False, singleprocess=False):
         """
         Create a persistent FIFO queue named by the 'data_path' argument.
 
@@ -205,29 +225,54 @@ class PersistentQueue:
         'compress' indicates whether or not to gzip the flat files.
         """
         assert cache_size > 0, "Cache size must be larger than 0"
+        # assign basic config properties
         self._cache_size = cache_size
         self._marshal = marshal
         self._compress = compress
-        self._index_file = os.path.join(data_path, INDEX_FILENAME)
+        # compute index and tempfile paths
+        self._index_file = os.path.join(data_path, "index")
         self._temp_path = os.path.join(data_path, "tempfile")
+        # compute data directory path, and create it
         self._data_path = os.path.join(data_path, "data")
-        if unlocked:
-            self._mutex_path = None
-            self._mutex = FakeMutex()
-        else:
-            self._mutex_path = os.path.join(data_path, "lock_file")
-            self._mutex = Mutex(self._mutex_path)
+        if not os.path.exists(self._data_path):
+            try:
+                os.makedirs(self._data_path)
+            except OSError, exc:
+                # okay if someone else just made it:
+                if exc.errno == 17:
+                    pass
+                else:
+                    raise
+        # setup in-memory state
         self._head = None
         self._tail = None
         self._put_cache = None
         self._get_cache = None
-        # set by make_multiprocess_safe and make_singleprocess_safe
-        self._multiprocessing = False
-        # make sure nobody else is trying to open right now, and then
-        # open for this instance.
-        self._mutex.acquire()
-        self._open()
-        self._mutex.release()
+        if singleprocess:
+            self._singleprocess = True
+            # no need for a mutex, so use a fake one
+            self._mutex_path = None
+            self._mutex = FakeMutex()
+            # populate in-memory state once for all time
+            self._open()
+        else:
+            self._singleprocess = False
+            self._mutex_path = os.path.join(data_path, "lock_file")
+            self._mutex = Mutex(
+                self._mutex_path,
+                acquire_callback=lambda: self._open(),
+                release_callback=lambda: self._close())
+            # make sure nobody else is trying to open right now, and
+            # then open for this instance.
+            self._mutex.acquire()  # this calls _open as a callback
+            self._mutex.release()  # this calls _close as a callback
+
+    def only_singleprocess(self):
+        """
+        returns bool whether this was opened for use with only a
+        singleprocess
+        """
+        return self._singleprocess
 
     def _open(self):
         """
@@ -236,15 +281,6 @@ class PersistentQueue:
         added and before _open is called.  The close method also calls
         sync.
         """
-        if not os.path.exists(self._data_path):
-            try:
-                os.makedirs(self._data_path)
-            except OSError, exc:
-                # if it already exists
-                if exc.errno == 17:
-                    pass
-                else:
-                    raise
         # start in-memory pointers from scratch
         self._head, self._tail = 0, 1
         # if the index is there, reset them
@@ -392,15 +428,11 @@ class PersistentQueue:
         """
         self._mutex.acquire()
         try:
-            if self._multiprocessing:
-                self._open()
             if self._get_cache is None:
                 return (self._tail - self._head - 1) * self._cache_size
             return ((self._tail - self._head - 1) * self._cache_size) + \
                     len(self._put_cache) + len(self._get_cache)
         finally:
-            if self._multiprocessing:
-                self._close()
             self._mutex.release()
 
     def sort(self, 
@@ -494,6 +526,8 @@ class PersistentQueue:
                         line = fh.readline()
                         if not line: break
                         sort.stdin.write(line)
+                    # end the last line before writing from next file
+                    sort.stdin.write("\n")
                     fh.close()
                 sort.stdin.close()
             else:
@@ -505,7 +539,7 @@ class PersistentQueue:
                 sort = subprocess.Popen(
                     args=args,
                     stdout=sorted_file)
-            syslog(LOG_DEBUG, "waiting for sort to finish, sort_file is open")
+            #syslog(LOG_DEBUG, "waiting for sort to finish, sort_file is open")
             sort.wait()
             sorted_file.close()
             #print " ".join(args)
@@ -521,7 +555,6 @@ class PersistentQueue:
             for pq in queues:
                 pq._head = 0
                 pq._tail = 1
-            syslog(LOG_DEBUG, "re-populating FIFO")
             if merge_to in merge_from:
                 # we acquired mutex, and count is zero
                 writer = Writer(merge_to, 0)
@@ -599,15 +632,11 @@ class PersistentQueue:
         #syslog("%s doing a put of: %s" % (self._data_path, nd))
         self._mutex.acquire()
         try:
-            if self._multiprocessing:
-                self._open()
             nd = copy.copy(nd)
             self._put_cache.append(nd)
             if len(self._put_cache) >= self._cache_size:
                 self._split()
         finally:
-            if self._multiprocessing:
-                self._close()
             self._mutex.release()
 
     def get(self, maxP=None):
@@ -624,9 +653,6 @@ class PersistentQueue:
         self._mutex.acquire()
         #start = time()
         try:
-            if self._multiprocessing:
-                # load caches from disk
-                self._open()
             if len(self._get_cache) == 0:
                 # load next cache file
                 self._join()
@@ -646,26 +672,7 @@ class PersistentQueue:
         finally:
             #end = time()
             #print "%.3f seconds to do internal getting" % (end - start)
-            if self._multiprocessing:
-                self._close()
             self._mutex.release()
-
-    def make_multiprocess_safe(self):
-        """
-        Cause future calls to get/put to _open and _close the
-        in-memory information.  This allows multiple processes to
-        interact with the queue.
-        """
-        self._multiprocessing = True
-
-    def make_singleprocess_safe(self):
-        """
-        Unset the effects of make_multiprocess_safe, so that only one
-        process can interact with the PersistentQueue.
-        """
-        if self._get_cache is None or self._put_cache is None:
-            self._open()
-        self._multiprocessing = False
 
     def _close(self):
         """
