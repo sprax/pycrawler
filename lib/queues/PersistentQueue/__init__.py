@@ -2,7 +2,7 @@
 PersistentQueue provides queue and heap-like interfaces to a set of
 flat files stored on disk.
 """
-# $Id: $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __credits__ = ["Kjetil Jacobsen"]
 __license__ = "MIT License"

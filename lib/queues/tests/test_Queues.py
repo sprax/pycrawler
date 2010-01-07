@@ -1,7 +1,7 @@
 """
 Tests for PersistentQueue.PersistentQueue and PersistentQueue.TriQueue
 """
-#$Id: $
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
