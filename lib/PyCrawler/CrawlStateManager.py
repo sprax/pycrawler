@@ -94,12 +94,12 @@ queue.
         try:
             self.prepare_process()
             self.hosts_in_flight = 0
-            self.hostsQ = PersistentQueue.TriQueue(
-                os.path.join(self.config["data_path"], "hostsQ"),
+            self.hostQ = PersistentQueue.TriQueue(
+                os.path.join(self.config["data_path"], "hostQ"),
                 marshal=HostInfo,
                 sorting_marshal=HostInfoSorting)
             while self._go.is_set():
-                syslog("hostsQ: %s" % self.hostsQ)
+                syslog("hostQ: %s" % self.hostQ)
                 if self.packerQ.qsize() < 5:
                     self.make_next_packer()
                 try:
@@ -108,17 +108,18 @@ queue.
                 except Queue.Empty:
                     if self.hosts_in_flight == 0:
                         sleep(2)
+                sleep(1) # slow things down
         except Exception, exc:
             multi_syslog(exc)
         finally:
             self.packerQ.close()
-            self.hostsQ.close()
+            self.hostQ.close()
             syslog(LOG_DEBUG, "Exiting.")
 
     def make_next_packer(self, max_urls=10000, 
                          max_hosts=100, max_per_host=100):
         """
-        Gets hosts from the hostsQ, and makes a packer with up to
+        Gets hosts from the hostQ, and makes a packer with up to
         max_urls URLs.  The number of hosts varies up to max_hosts,
         and the number of URLs per host varies up to max_per_host
         """
@@ -128,7 +129,7 @@ queue.
         ready_to_sync_hosts = False
         while num_urls <= max_urls and num_hosts <= max_hosts:
             try:
-                host = self.hostsQ.get(maxP=time())
+                host = self.hostQ.get(maxP=time())
             except PersistentQueue.TriQueue.ReadyToSync:
                 syslog("ready to sync hosts")
                 ready_to_sync_hosts = True
@@ -137,7 +138,7 @@ queue.
                     PersistentQueue.PersistentQueue.NotYet), exc:
                 syslog("not ready to sync hosts, but: %s" % exc)
                 break
-            #syslog(LOG_DEBUG, "got host: %s, available: %s" % (host, self.hostsQ._mutex.available()))
+            #syslog(LOG_DEBUG, "got host: %s, available: %s" % (host, self.hostQ._mutex.available()))
             num_hosts += 1
             urlQ = self.get_urlQ(host)
             num_per_host = 0
@@ -165,17 +166,17 @@ queue.
                 self.hosts_in_flight += 1
             else:
                 #syslog(LOG_DEBUG, "putting host back")
-                self.hostsQ.put(host)
+                self.hostQ.put(host)
         if num_urls > 0:
             syslog("URL count: %d" % len(packer))
             self.packerQ.put(packer)
         else:
             syslog(LOG_DEBUG, "URL count: 0")
-        # outside of while loop, if hostsQ is ready, and not waiting
+        # outside of while loop, if hostQ is ready, and not waiting
         # for more pendings to return, then launch host sync:
         syslog("ready_to_sync_hosts: %s, hosts_in_flight: %d" % (ready_to_sync_hosts, self.hosts_in_flight))
         if ready_to_sync_hosts and self.hosts_in_flight == 0:
-            self.hostsQ.sync()
+            self.hostQ.sync()
 
     def get_urlQ(self, host):
         """
@@ -206,7 +207,7 @@ queue.
         there.
         """
         if isinstance(info, HostInfo):
-            self.hostsQ.put(info)
+            self.hostQ.put(info)
             self.hosts_in_flight -= 1
             return
         # must be a FetchInfo
@@ -221,11 +222,11 @@ queue.
             syslog(LOG_DEBUG, 
                    "urlQ(%s).put(%s) --> %s" \
                        % (info.hostkey, info.relurl, info))
-            # need to add a HostInfo to the hostsQ
+            # need to add a HostInfo to the hostQ
             host_info = HostInfo({"hostkey": info.hostkey})
             # These are new host_info that might duplicate existing
             # host records, and should not increment hosts_in_flight:
-            self.hostsQ.put(host_info)
+            self.hostQ.put(host_info)
             syslog(LOG_DEBUG, "hostQ.put(%s)" % info.hostkey)
             # use the host to open the urlQ:
             urlQ = self.get_urlQ(host_info)
