@@ -295,10 +295,19 @@ class Analyzer(Process):
                             hasattr(yzable, "hostkey") and yzable.hostkey or "",
                             hasattr(yzable, "relurl") and yzable.relurl or ""),
                         exc=exc)
-                self.outQ.put(yzable)
+                # this blocks when processes later in the chain block
+                block_count = 0
+                while self._go.is_set():
+                    block_count += 1
+                    try:
+                        self.outQ.put_nowait(yzable)
+                    except Queue.Full:
+                        if (block_count % 10) == 0:
+                            syslog(LOG_NOTICE, "Chain blocked for %d seconds" % block_count)
+                        sleep(1)
             self.cleanup()
         except Exception, exc:
-            multi_syslog(LOG_DEBUG, exc=exc)
+            multi_syslog(exc)
 
     def analyze(self, yzable):
         """
