@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 CrawlStateManager provides an API to the CrawLState files
 

@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 PersistentQueue provides queue and heap-like interfaces to a set of
 flat files stored on disk.

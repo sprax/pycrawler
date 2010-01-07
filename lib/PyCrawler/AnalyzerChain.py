@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 A document processing chain for PyCrawler.
 

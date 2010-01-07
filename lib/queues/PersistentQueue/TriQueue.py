@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 TriQueue provides a Queue interface to a set of three PersistentQueues:
 

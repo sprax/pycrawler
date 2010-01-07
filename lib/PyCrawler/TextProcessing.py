@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 A simple set of functions for processing text.
 """

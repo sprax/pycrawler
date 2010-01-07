@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 A wrapper around pycurl that implements politeness and passes
 documents into an AnalyzerChain

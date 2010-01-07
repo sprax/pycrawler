@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 A specialized form of of a priority queue built around python's heapq
 module and different from Queue.PriorityQueue.

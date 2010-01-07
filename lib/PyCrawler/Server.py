@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 Provides a multiprocessing.managers.BaseManager for interacting with a
 CrawlStateManager.

@@ -1,3 +1,7 @@
+#!/usr/bin/python2.6
+"""
+A set of conveniences around multiprocessing.Process and syslog
+"""
 #$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"

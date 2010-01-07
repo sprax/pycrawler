@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 PersistentQueue.Queue provides a queue interface to a set of flat
 files stored on disk.

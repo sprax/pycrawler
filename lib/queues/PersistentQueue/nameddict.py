@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 nameddict implementation that can be pickled and also provides __str__
 and fromstr() methods that enabled ordered single-line
