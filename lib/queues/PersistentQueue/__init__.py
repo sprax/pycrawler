@@ -10,6 +10,7 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
-from nameddict import nameddict, SafeStr
-from PersistentQueue import PersistentQueue, Mutex
+from Mutex import Mutex
 from TriQueue import TriQueue
+from nameddict import nameddict, SafeStr
+from PersistentQueue import PersistentQueue
