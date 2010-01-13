@@ -1,16 +1,15 @@
 #!/usr/bin/python2.6
 """
-PersistentQueue provides queue and heap-like interfaces to a set of
-flat files stored on disk.
+PersistentQueue provides FIFO and priority queue interfaces to a set
+of flat files stored on disk.
 """
 # $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
-__credits__ = ["Kjetil Jacobsen"]
 __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
+from FIFO import FIFO
 from Mutex import Mutex
-from TriQueue import TriQueue
-from nameddict import nameddict, SafeStr
-from PersistentQueue import PersistentQueue
+from Records import RecordFactory, b64, Static, insort_right
+from BatchPriorityQueue import BatchPriorityQueue
