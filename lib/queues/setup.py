@@ -10,16 +10,16 @@ version = "0.1"
 
 setup(name="PersistentQueue",
       version=version,
-      description="queue and heap-like data structures that persist data in flat-files on disk",
+      description="FIFO and priority queue interfaces to a set of flat-files on disk",
       long_description="""\
-Provides a PersistentQueue.Queue that is a persistent FIFO that includes a sorting mechanism for re-ordering the data into an ordered (heap-like) structure.   PersistentQueue.TriQueue provides persistence with state.  Records never actually leave the TriQueue.  Rather they are set to pending until the next sync.""",
+Provides a PersistentQueue.FIFO and PersistentQueue.RecordFactory of non-memory-bound sorting routines.   PersistentQueue.BatchPriorityQueue provides an orderable storage mechanism for namedtuples that represent state of objects, such as hosts being crawled.""",
       classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "Programming Language :: Python",
         "License :: OSI Approved :: MIT License",
         ],
-      keywords="python, persistent queue, persistent heap",
+      keywords="python, persistent queue, persistent priority queue",
       author="John R. Frank",
       author_email="postshift gmail",
       url="http://code.google.com/p/pycrawler/",
