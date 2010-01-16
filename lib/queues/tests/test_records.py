@@ -18,7 +18,7 @@ from hashlib import md5
 from optparse import OptionParser
 
 sys.path.insert(0, os.getcwd())
-from PersistentQueue import RecordFactory, b64, Static, insort_right
+from PersistentQueue import RecordFactory, b64, Static, JSON, insort_right
 
 parser = OptionParser()
 parser.add_option("-n", "--num", type=int, default=5, dest="num")
@@ -32,9 +32,9 @@ assert hi.value == "hi"
 # make a factory for testing:
 factory = RecordFactory(
     "SpecialTuple", 
-    "next score depth data hostkey foo",
-    (int, float, int, b64, Static("http://www.wikipedia.com"), Static(None)),
-    defaults = {"next": 0, "score": 0, "data": "did we survive b64ing?"})
+    "next score depth data hostkey foo dog",
+    (int, float, int, b64, Static("http://www.wikipedia.com"), Static(None), JSON),
+    defaults = {"next": 0, "score": 0, "data": "did we survive b64ing?", "dog": {}})
 
 ##### check bisect insort routine
 # make a sorted list of records
@@ -45,7 +45,7 @@ key = 2
 start = time()
 for val in sample(upto_hundred, num):
     vals = (choice(upto_hundred), random(), val, 
-            md5(str(random())).hexdigest(), "not_wikipedia", "not_None")
+            md5(str(random())).hexdigest(), "not_wikipedia", "not_None", {1: "car"})
     rec = factory.create(*vals)
     insort_right(records, rec, key)
 

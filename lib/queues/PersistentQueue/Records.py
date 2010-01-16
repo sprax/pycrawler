@@ -9,13 +9,19 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
+import bz2
 import operator
+import simplejson
 import subprocess
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from collections import namedtuple
 
 class b64(object): 
     "indicates to dumps/loads to use urlsafe_b64encode/decode"
+    pass
+
+class JSON(object):
+    "indicates to dumps/loads to serialize this as JSON"
     pass
 
 Static = namedtuple("Static", "value")
@@ -125,6 +131,7 @@ class RecordFactory(object):
          * bool --> 0 or 1
          * float --> ten-digit fixed point number
          * b64 --> urlsafe_b64encode
+         * JSON --> urlsafe_b64encode(bz2.compress(simplejson.dumps()))
          * others must be of type basestring already
         """
         assert len(record) == len(self._template), \
@@ -140,14 +147,18 @@ class RecordFactory(object):
                 parts.append("")
             elif val_type is bool:
                 parts.append(str(int(val)))
+            elif val_type is int:
+                parts.append(str(val))
             elif val_type is float:
                 # ten-digit fixed-point rather than scientific notation,
                 # so that sort doesn't think the "e" is a letter.
                 parts.append("%.10f" % val)
             elif val_type is b64:
                 parts.append(urlsafe_b64encode(val))
-            elif val_type is int:
-                parts.append(str(val))
+            elif val_type is JSON:
+                parts.append(
+                    urlsafe_b64encode(
+                        bz2.compress(simplejson.dumps(val))))
             else:
                 assert isinstance(val, basestring), \
                     "Is this a new special type: %s\nrepr: %s" % \
@@ -190,12 +201,16 @@ class RecordFactory(object):
                 record.append(None)
             elif val_type is bool:
                 record.append(bool(int(val)))
+            elif val_type is int:
+                record.append(int(val))
             elif val_type is float:
                 record.append(float(val))
             elif val_type is b64:
                 record.append(urlsafe_b64decode(val))
-            elif val_type is int:
-                record.append(int(val))
+            elif val_type is JSON:
+                record.append(
+                    simplejson.loads(
+                        bz2.decompress(urlsafe_b64decode(val))))
             else:
                 assert isinstance(val, basestring), \
                     "need a new special type?\ntype: %s\nrepr: %s" % \
