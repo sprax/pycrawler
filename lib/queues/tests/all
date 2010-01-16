@@ -2,6 +2,7 @@
 
 python2.6 tests/test_fifo.py
 python2.6 tests/test_records.py
+python2.6 tests/test_recordfifo.py
 python2.6 tests/test_batch_priority_queue.py
 
 
