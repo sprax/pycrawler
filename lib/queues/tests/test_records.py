@@ -11,6 +11,7 @@ import os
 import sys
 import copy
 import blist
+import cPickle as pickle
 import operator
 from time import time
 from random import random, sample, choice, shuffle
@@ -18,11 +19,47 @@ from hashlib import md5
 from optparse import OptionParser
 
 sys.path.insert(0, os.getcwd())
+import PersistentQueue
 from PersistentQueue import RecordFactory, b64, Static, JSON, insort_right
 
 parser = OptionParser()
 parser.add_option("-n", "--num", type=int, default=5, dest="num")
 (options, args) = parser.parse_args()
+
+##### check Record creation
+class Point(PersistentQueue.Record):
+    __slots__ = 'x', 'y'
+
+p = Point(3, 4)
+p = Point(y=5, x=2)
+p = Point(-1, 42)
+assert (p.x, p.y) == (-1, 42), str((p.x, p.y))
+x, y = p
+assert (x, y) == (-1, 42), str((x, y))
+
+class Badger(PersistentQueue.Record):
+    __slots__ = 'large', 'wooden'
+badger = Badger('spam', 'eggs')
+import cPickle as pickle
+assert repr(pickle.loads(pickle.dumps(badger))) == repr(badger)
+
+class Answer(PersistentQueue.Record):
+    __slots__ = 'life', 'universe', 'everything'
+a1 = repr(Answer(42, 42, 42))
+a2 = eval(a1)
+assert repr(a2) == a1, str((repr(a2), a1))
+
+a2.life = 37
+ra2 = repr(a2)
+a3 = eval(ra2)
+assert repr(a3) == ra2, str((repr(a3), ra2))
+assert a3.life == 37
+
+Dog = PersistentQueue.define_record("Dog", ("legs", "name"))
+d = Dog(legs=4, name="barny")
+assert repr(d) == """Dog(legs=4, name='barny')""", repr(d)
+
+assert repr(pickle.loads(pickle.dumps(d))) == repr(d)
 
 ##### Static is not broken
 hi = Static("hi")
@@ -30,11 +67,16 @@ assert isinstance(hi, Static), type(hi)
 assert hi.value == "hi"    
 
 # make a factory for testing:
+MyRec = PersistentQueue.define_record("MyRec", ("next", "score", "depth", "data", "hostkey", "foo", "dog"))
 factory = RecordFactory(
-    "SpecialTuple", 
-    "next score depth data hostkey foo dog",
+    MyRec,
     (int, float, int, b64, Static("http://www.wikipedia.com"), Static(None), JSON),
-    defaults = {"next": 0, "score": 0, "data": "did we survive b64ing?", "dog": {}})
+    {"next": 0, "score": 0, "data": "did we survive b64ing?", "dog": {}})
+
+rec = factory.create(**{"depth": -100})
+s = pickle.dumps(rec)
+rec2 = pickle.loads(s)
+assert rec == rec2, "\n\nunpickled: %s\nrec:       %s" % (repr(rec2), repr(rec))
 
 ##### check bisect insort routine
 # make a sorted list of records

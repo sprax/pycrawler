@@ -44,9 +44,9 @@ rmdir(data_path)
 
 unique_key = 4
 priority_key = 0
+HostInfo = PersistentQueue.define_record("HostInfo", "next start megabytes hits hostname")
 q = PersistentQueue.BatchPriorityQueue(
-    "HostInfo", 
-    "next start megabytes hits hostname",
+    HostInfo,
     (int, int, int, int, str),
     data_path, unique_key, priority_key,
     defaults = {"next": 0, "start": 0, "megabytes": 0, "hits": 0})

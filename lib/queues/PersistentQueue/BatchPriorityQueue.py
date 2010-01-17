@@ -17,7 +17,7 @@ from FIFO import FIFO
 from time import time, sleep
 from Mutex import Mutex
 from syslog import syslog, openlog, LOG_INFO, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
-from Records import RecordFactory
+from RecordFactory import RecordFactory
 
 class BatchPriorityQueue(RecordFactory):
     """
@@ -40,13 +40,13 @@ class BatchPriorityQueue(RecordFactory):
         function can simply add them.
 
     """
-    def __init__(self, name, fields, template,
+    def __init__(self, record_class, template,
                  data_path, unique_key, priority_key, 
                  defaults={}, delimiter="|",
                  cache_size=2**16):
         """
-        See RecordFactory for 'name', 'fields', 'template',
-        'defaults', and 'delimiter'.
+        See RecordFactory for record_class, 'template', 'defaults',
+        and 'delimiter'.
 
         'data_path' and 'cache_size' are for _pQ and _dumpQ
 
@@ -54,10 +54,8 @@ class BatchPriorityQueue(RecordFactory):
         indicating which to attributes of records to use as unique
         keys and priorities.
         """
-        self.horrible = 0
-
         RecordFactory.__init__(
-            self, name, fields, template, defaults, delimiter)
+            self, record_class, template, defaults, delimiter)
         self._unique_key   = unique_key
         self._priority_key = priority_key
         self._cache_size = cache_size
@@ -124,23 +122,14 @@ class BatchPriorityQueue(RecordFactory):
             if self._next is None:
                 # instantiate next record without removing from pQ, raises
                 # Queue.Empty when no lines in FIFO
-                while True:
-                    try:
-                        # horrible hack to cope with newlines
-                        # introduced by sorting...
-                        line = self._pQ.next()
-                        if len(line) == 0: 
-                            self.horrible += 1
-                            print "horrible hack: %d" % self.horrible
-                            self._pQ.get()
-                            continue
-                        self._next = self.loads(line)
-                        break
-                    except Queue.Empty:
-                        if len(self._dumpQ) == 0:
-                            raise Queue.Empty
-                        else:
-                            raise self.ReadyToSync
+                try:
+                    line = self._pQ.next()
+                    self._next = self.loads(line)
+                except Queue.Empty:
+                    if len(self._dumpQ) == 0:
+                        raise Queue.Empty
+                    else:
+                        raise self.ReadyToSync
             if max_priority is None or \
                     self._next[self._priority_key] < max_priority:
                 # Remove this line from _pQ and put into _dumpQ. There

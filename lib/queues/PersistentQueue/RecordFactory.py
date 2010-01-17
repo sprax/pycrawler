@@ -9,11 +9,14 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
+import sys
 import bz2
+import keyword
 import operator
 import simplejson
 import subprocess
 from base64 import urlsafe_b64encode, urlsafe_b64decode
+from Record import Record, define_record
 from collections import namedtuple
 
 class b64(object): 
@@ -53,38 +56,34 @@ def insort_right(sorted_list, record, key):
 
 class RecordFactory(object):
     """
-    Provides convenience methods for instantiating namedtuples with
-    default values and for obtaining a 'template' for dumps/loads.
+    Provides convenience methods for definiing and managing instances
+    of Record with default values and for obtaining a 'template' for
+    dumps/loads.
     """
-    def __init__(self, name, fields, template, 
-                 defaults={}, delimiter="|"):
+    def __init__(self, record_class, template, defaults={}, delimiter="|"):
         """
-        'name' becomes classname of records created by this factory.
+        constructs _static_types used by dumps/loads
         
-        'fields' is used as the second argument to namedtuple, so it
-        can be a string of attribute names separated by spaces, or a
-        sequence.
-
-        'template' is a tuple of types, must align with 'attrs'.
+        'template' is a tuple of types aligned with _class.__slots__.
 
         (optional) 'defaults' is a dict that provides default values
-        used by create().  Its keys must be names in 'attrs'.
-        
-        (optional) 'delimiter' is used by dumps/loads.
+        used by create().  Its keys must be names in _class.__slots__.
+
+        'delimiter' is used by dumps/loads.
         """
-        self._class = namedtuple(name, fields)
+        self._class = record_class
         self._template = template
-        assert len(self._class._fields) == len(self._template), \
-            "_fields:  %s\ntemplate: %s" % \
-            (self._class._fields, self._template)
+        self._defaults = defaults
+        self._delimiter = delimiter
+        assert len(self._class.__slots__) == len(self._template), \
+            "__slots__:  %s\ntemplate: %s" % \
+            (self._class.__slots__, self._template)
         self._static_types = []
         for idx in range(len(self._template)):
             if isinstance(self._template[idx], Static):
                 self._static_types.append(
-                    (idx, self._class._fields[idx], 
+                    (idx, self._class.__slots__[idx], 
                      self._template[idx].value))
-        self._defaults = defaults
-        self._delimiter = delimiter
 
     def create(self, *values, **attrs):
         """

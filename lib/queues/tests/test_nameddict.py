@@ -1,189 +1,86 @@
-# $Id$
-__author__ = "John R. Frank"
-__copyright__ = "Copyright 2009, John R. Frank"
-__license__ = "MIT License"
-__version__ = "0.1"
-
-import os
 import sys
-import Queue
-import shutil
-import cPickle
-from random import random
-from optparse import OptionParser
 
-sys.path.insert(0, os.getcwd())
-from PersistentQueue import nameddict, SafeStr, PersistentQueue
+class InitFromSlots(type):
+    def __new__(meta, name, bases, bodydict):
+        slots = bodydict['__slots__']
+        if slots and '__init__' not in bodydict:
+            parts = ['def __init__(self, %s):' % ', '.join(slots)]
+            for slot in slots:
+                parts.append('    self.%s = %s' % (slot, slot))
+            exec '\n'.join(parts) in bodydict
+        super_new =  super(InitFromSlots, meta).__new__
+        return super_new(meta, name, bases, bodydict)
 
-class MyND1(nameddict):
-    _defaults = {"a": None, "b": None, "c": None}
-    _key_ordering = ["b", "a", "c"]
-    _val_types = [str, float, str]
-    _sort_key = 1
+class Record(object):
+    __metaclass__ = InitFromSlots
+    __slots__ = ()
+    def _items(self):
+        for name in self.__slots__:
+            yield name, getattr(self, name)
+    def __repr__(self):
+        args = ', '.join('%s=%r' % tup for tup in self._items())
+        return '%s(%s)' % (type(self).__name__, args)
+    def __iter__(self):
+        for name in self.__slots__:
+            yield getattr(self, name)
+    def __getstate__(self):
+        return dict(self._items())
+    def __setstate__(self, statedict):
+        self.__init__(**statedict)
 
-class MyND2(nameddict):
-    _key_ordering = ["b", "a", "c"]
-    _val_types = [SafeStr, bool, str]
+def make_record(typename, field_names):
+    field_names = "'%s'" % "', '".join(field_names)
+    template = """class %(typename)s(Record):
+        __slots__ = %(field_names)s""" % locals()
 
-def test(SomeND, attrs):
-    # verify that instances can be pickled
-    d  = SomeND(attrs)
-    d.c = "car"
-    print d.__dict__
-    p  = cPickle.dumps(d, -1)
-    pd = cPickle.loads(p)
-    print pd.__dict__
-    assert d == pd, "failed because d = '%s' != '%s' = pd" % (repr(d), repr(pd))
-    print "... pickling appears to work ... "
+    # using concepts from /usr/lib/python2.6/collections.py, so this
+    # is Python Licensed:
+    namespace = dict({"Record": Record})
+    try:
+        exec template in namespace
+    except SyntaxError, e:
+        raise SyntaxError(e.message + ":\n" + template)
+    result = namespace[typename]
 
-    s  = str(d)
-    print "d.__dict__ = %s" % d.__dict__
-    print "attempting to reconstruct fromstr(%s)" % s
-    sd = SomeND.fromstr(s)
-    print "reconstructed sd.__dict__ = %s" % sd.__dict__
-    assert sd == d, "failed to reconstruct from %s" % repr(s)
-    print "... collapsing to line of text works ..."
+    # For pickling to work, the __module__ variable needs to be set to the frame
+    # where the named tuple is created.  Bypass this step in enviroments where
+    # sys._getframe is not defined (Jython for example).
+    if hasattr(sys, '_getframe'):
+        result.__module__ = sys._getframe(1).f_globals.get('__name__', '__main__')
 
-    # dumping a single item and reloading it:
-    s = MyND1.dumps(d)
-    pd = MyND1.loads(s)[0]
-    assert d == pd and d.c == pd.c, "loads(dumps(d)) != d: %s -> %s -> %s" % (repr(str(d)), repr(str(s)), repr(str(pd)))
-    print "... dumping a single item and reloading it works ..."
+    return result
 
-def sort_test():
-    NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
-    for i in range(1000):
-        NDs.append(MyND1({"a": random()}))
-    unsorted = [str(ND) for ND in NDs]
-    NDs.sort()
-    sorted   = [str(ND) for ND in NDs]
-    assert unsorted != sorted, "\nunsorted: %s\nsorted:   %s" % (unsorted, sorted)
-    prev = 0
-    for ND in sorted:
-        ND = MyND1.fromstr(ND)
-        assert prev <= ND.get_sort_val(), "wrong order: %s !<= %s" % (prev, ND.get_sort_val())
-        prev = ND.get_sort_val()
-    print "sorting test passed"
-
-def serializing_test():
-    NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
-    s = MyND1.dumps(NDs)
-    NewNDs = MyND1.loads(s)
-    assert NDs == NewNDs, "failed to 'loads' from 'dumps':\nNDs:    %s\nNewNDs: %s" % (NDs, NewNDs)
-    print "loads(dumps) works"
-
-def storing_in_persistent_queue():
-    # make it not sort
-    MyND1._sort_key = None
-    pq = PersistentQueue(data_test_dir, marshal=MyND1)
-    NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
-    for ND in NDs:
-        pq.put(ND)
-        pq.sync()
-    pq.close()
-    pq = PersistentQueue("data_test_dir", marshal=MyND1)
-    newNDs = []
-    while 1:
-        try:
-            ND = pq.get()
-        except Queue.Empty:
-            break
-        newNDs.append(ND)        
-    pq.close()
-    assert NDs == newNDs, \
-        "failed to get the same thing back: \nNDs: [%s]\nnewNDs: [%s]" % \
-        (", ".join([str(x) for x in NDs]),
-         ", ".join([str(x) for x in newNDs]))
-    print "passed the storage test"
-
-def sorting_in_persistent_queue():
-    MyND1._sort_key = 1
-    pq = PersistentQueue(data_test_dir, marshal=MyND1)
-    NDs = [MyND1({"a": .45}), MyND1({"a": .3}), MyND1({"a": .5})]
-    for ND in NDs:
-        pq.put(ND)
-    print "calling sort"
-    ret = pq.sort()
-    assert ret != NotImplemented, "failed to setup nameddict for sorting"
-    prev = 0
-    newNDs = []
-    while 1:
-        try:
-            ND = pq.get()
-        except Queue.Empty:
-            break
-        newNDs.append(ND)
-        assert prev <= ND.get_sort_val(), \
-            "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
-        prev = ND.get_sort_val()
-    NDs.sort()
-    assert NDs == newNDs, \
-        "failed to reconstruct the full sorted list: \nNDs: [%s]\nnewNDs: [%s]" % \
-        (", ".join([str(x) for x in NDs]),
-         ", ".join([str(x) for x in newNDs]))
-    pq.close()
-    print "passed sorting in persistent queue tests"
-
-def merging(ELEMENTS=100, NUM_QUEUES=5):
-    MyND1._sort_key = 1
-    # create a bunch of random data in four queues
-    NDs = []
-    queues = []
-    for i in range(NUM_QUEUES):
-        pq = PersistentQueue(
-            os.path.join(data_test_dir, str(i)), 
-            marshal=MyND1)
-        queues.append(pq)
-        for i in range(ELEMENTS):
-            ND = MyND1({"a": random()})
-            NDs.append(ND)
-            pq.put(ND)
-    # use the first queue as the host, and merge all the queues into
-    # the fourth queue
-    ret = queues[0].sort(merge_from=queues) #, merge_to=queues[3])
-    assert ret != NotImplemented, "failed to setup nameddict for sorting"
-    #for i in range(5):
-    #    print "%d has %d" % (i, len(queues[i]))
-    prev = 0
-    newNDs = []
-    while 1:
-        try:
-            ND = queues[0].get()
-        except Queue.Empty:
-            break
-        newNDs.append(ND)
-        assert prev <= ND.get_sort_val(), \
-            "failed to get sorted order: %s !<= %s" % (prev, ND.get_sort_val())
-        prev = ND.get_sort_val()
-    NDs.sort()
-    for i in range(NUM_QUEUES * ELEMENTS):
-        a = NDs.pop()
-        b = newNDs.pop()
-        assert a != b, "non-identical instances at %d: %s != %s" % (i, a, b)
-    for pq in queues:
-        pq.close()
-    print "passed merging in persistent queue tests"
+if __name__ == '__main__':
+    class Point(Record):
+        __slots__ = 'x', 'y'
     
-def rmdir(dir):
-    if os.path.exists(dir):
-        try:
-            shutil.rmtree(dir)
-        except Exception, exc:
-            print "Did not rmtree the dir. " + str(exc)
+    p = Point(3, 4)
+    p = Point(y=5, x=2)
+    p = Point(-1, 42)
+    assert (p.x, p.y) == (-1, 42), str((p.x, p.y))
+    x, y = p
+    assert (x, y) == (-1, 42), str((x, y))
 
-data_test_dir = "data_test_dir"
+    class Badger(Record):
+        __slots__ = 'large', 'wooden'
+    badger = Badger('spam', 'eggs')
+    import cPickle as pickle
+    assert repr(pickle.loads(pickle.dumps(badger))) == repr(badger)
 
-if __name__ == "__main__":
-    test(MyND1, {"a": 1.0, "b": None})
-    test(MyND2, {"a": False, "b": "car|bomb"})
+    class Answer(Record):
+        __slots__ = 'life', 'universe', 'everything'
+    a1 = repr(Answer(42, 42, 42))
+    a2 = eval(a1)
+    assert repr(a2) == a1, str((repr(a2), a1))
 
-    sort_test()
-    serializing_test()
+    a2.life = 37
+    ra2 = repr(a2)
+    a3 = eval(ra2)
+    assert repr(a3) == ra2, str((repr(a3), ra2))
+    assert a3.life == 37
 
-    rmdir(data_test_dir)
-    storing_in_persistent_queue()
-    rmdir(data_test_dir)
-    sorting_in_persistent_queue()
-    rmdir(data_test_dir)
-    merging()
-    rmdir(data_test_dir)
+    Dog = make_record("Dog", ("legs", "name"))
+    d = Dog(legs=4, name="barny")
+    assert repr(d) == """Dog(legs=4, name='barny')""", repr(d)
+
+    assert repr(pickle.loads(pickle.dumps(d))) == repr(d)

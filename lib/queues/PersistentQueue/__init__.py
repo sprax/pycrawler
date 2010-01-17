@@ -11,6 +11,7 @@ __maintainer__ = "John R. Frank"
 
 from FIFO import FIFO
 from Mutex import Mutex
-from Records import RecordFactory, b64, Static, JSON, insort_right
+from Record import Record, define_record
 from RecordFIFO import RecordFIFO
+from RecordFactory import RecordFactory, b64, Static, JSON, insort_right
 from BatchPriorityQueue import BatchPriorityQueue
