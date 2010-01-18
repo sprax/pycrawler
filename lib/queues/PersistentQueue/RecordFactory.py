@@ -217,16 +217,17 @@ class RecordFactory(object):
                 record.append(val)
         return self._class(*record)
 
-    def mergefiles(self, file_names, key=0):
+    def mergefiles(self, file_names, keys=(0,)):
         """
-        file_names must be paths to files containing the result of calling
-        dumps(<tuple>, template) on lists of tuples that have been sorted
-        by their 'key' field.  The sort order must be either numeric or
-        alphanumeric depending on whether template[key] is of int/float or
-        basestring.  
+        file_names must be paths to files containing the result of
+        calling dumps(<tuple>, template) on lists of tuples that have
+        been sorted by their 'keys' fields.  'keys' is a sequence of
+        integers specifying key positions and their order.  The sort
+        order must be either numeric or alphanumeric depending on
+        whether template[key] is of int/float or basestring.
 
-        This assumes the files are sorted and simply merges them using the
-        GNU coreutils sort function via subprocess.Popen
+        This assumes the files are sorted and simply merges them using
+        the GNU coreutils sort function via subprocess.Popen
 
         This provides a generator for the merge sorted records, which
         yields tuples created by calling loads(<line>)
@@ -235,9 +236,9 @@ class RecordFactory(object):
         args = ["sort", "-m"]
         # define field separator
         args.append("-t%s" % self._delimiter)
-        # define sort key
-        numerical = self._template[key] in (int, float) and "n" or ""
-        args.append("-k%d,%d%s" % (key + 1, key + 2, numerical))
+        for key in keys:
+            numerical = self._template[key] in (int, float) and "n" or ""
+            args.append("-k%d%s" % (key + 1, numerical))
         # pass file names as args
         args += file_names
         #print " ".join(args)
@@ -259,13 +260,14 @@ class RecordFactory(object):
             assert line[-1] == "\n", "expected newline on every line"
             yield self.loads(line[:-1])
 
-    def sort(self, records, key=0, output_strings=True):
+    def sort(self, records, keys=(0,), output_strings=True):
         """
         This serializes records and feeds them through the a
         subprocess.PIPE to GNU coreutils sort so that they become
-        sorted by their 'key' field.  The sort order will be either
-        numeric or alphanumeric depending on whether template[key] is
-        of int/float or basestring.
+        sorted by their 'keys' fields.  'keys' is a sequence of
+        integers specifying key positions and their order.  The sort
+        order will be either numeric or alphanumeric depending on
+        whether template[key] is of int/float or basestring.
 
         This provides a generator for the sorted records. 
 
@@ -277,9 +279,9 @@ class RecordFactory(object):
         args = ["sort"]
         # define field separator
         args.append("-t%s" % self._delimiter)
-        # define sort key
-        numerical = self._template[key] in (int, float) and "n" or ""
-        args.append("-k%d,%d%s" % (key + 1, key + 2, numerical))
+        for key in keys:
+            numerical = self._template[key] in (int, float) and "n" or ""
+            args.append("-k%d%s" % (key + 1, numerical))
         #print " ".join(args)
         sort = subprocess.Popen(
             args=args,

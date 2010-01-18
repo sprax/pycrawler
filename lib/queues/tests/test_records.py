@@ -55,6 +55,11 @@ a3 = eval(ra2)
 assert repr(a3) == ra2, str((repr(a3), ra2))
 assert a3.life == 37
 
+#class Answer(PersistentQueue.Record):
+#    __slots__ = 'life', 'universe', 'everything'
+#a1 = Answer(42, 42, lambda x: x.life - 5)
+#print a1.everything
+
 Dog = PersistentQueue.define_record("Dog", ("legs", "name"))
 d = Dog(legs=4, name="barny")
 assert repr(d) == """Dog(legs=4, name='barny')""", repr(d)
@@ -143,7 +148,7 @@ assert records2[0].hostkey is "http://www.wikipedia.com", records2[0].hostkey
 assert records2[0].foo is None, records2[0].foo
 os.remove(test_file)
 
-##### test mergefiles
+##### test mergefiles with one key
 # make five files, fill them, and merge sort them
 file_names = []
 for i in range(5):
@@ -156,9 +161,44 @@ for i in range(5):
     fh.write("\n".join(some_recs))
     fh.close()
 # do the merge sort
-records2 = [x for x in factory.mergefiles(file_names, key=2)]
+records2 = [x for x in factory.mergefiles(file_names, keys=(2,))]
 # confirm sorted result
 merged = [x.depth for x in records2]
+correct = copy.copy(merged)
+correct.sort()
+assert correct == merged, \
+    "\ncorrect: %s\nmerged:  %s" % \
+    (" ".join([str(x) for x in correct]),
+     " ".join([str(x) for x in merged]))
+# cleanup
+for fn in file_names:
+    os.remove(fn)
+
+##### test mergefiles with three keys
+# make 100 records with next, score, depth
+records = []
+for next in sample(xrange(10**9), 100):
+    records.append(factory.create(**{
+                "next": next,
+                "score": int(random() * 10000),
+                "depth": int(random() * 10000)
+                }))
+shuffle(records)
+# make ten files, fill them, and merge sort them
+file_names = []
+for i in range(10):
+    fn = "test%d" % i
+    file_names.append(fn)
+    some_recs = records[10 * i : 10 * (i+1)]
+    some_recs.sort(key=operator.itemgetter(1,2,0))
+    some_recs = [factory.dumps(x) for x in some_recs]
+    fh = open(fn, "w")
+    fh.write("\n".join(some_recs))
+    fh.close()
+# do the merge sort
+records2 = [x for x in factory.mergefiles(file_names, keys=(1,2,0))]
+# confirm sorted result
+merged = [(x.score, x.depth, x.next) for x in records2]
 correct = copy.copy(merged)
 correct.sort()
 assert correct == merged, \
@@ -187,7 +227,7 @@ for i in range(10):
     fh.write("\n".join(some_recs))
     fh.close()
 # accumulate them using the simple deduplicator above:
-records2 = [x for x in factory.accumulate(factory.mergefiles(file_names, key=2))]
+records2 = [x for x in factory.accumulate(factory.mergefiles(file_names, keys=(2,)))]
 # should get only five out:
 assert len(records2) == 5, "\n".join([factory.dumps(x) for x in records2])
 # and they should be sorted
@@ -204,11 +244,14 @@ for fn in file_names:
 
 ##### test sort
 # make fifty records of only five types
-records = [factory.create(**{"depth": x}) for x in sample(xrange(num * 1000), num)]
+records = [factory.create(**{"depth": x, 
+                             "score": int(random() * 10**9),
+                             "next": int(random() * 10**9)}) 
+           for x in sample(xrange(num * 1000), num)]
 shuffle(records)
-records2 = [x for x in factory.sort(records, key=2, output_strings=False)]
+records2 = [x for x in factory.sort(records, keys=(1,0), output_strings=False)]
 # they should be sorted
-merged = [x.depth for x in records2]
+merged = [(x.score, x.next) for x in records2]
 correct = copy.copy(merged)
 correct.sort()
 assert correct == merged, \
