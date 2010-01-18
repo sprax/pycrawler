@@ -165,6 +165,14 @@ class FIFO:
         self._sync_head()  # raises if empty
         return self._head_cache.pop(0)
 
+    def __iter__(self):
+        "iterates over all items in FIFO, removing as it goes"
+        while True:
+            try:
+                yield self.get()
+            except Queue.Empty:
+                raise StopIteration
+
     def sync(self):
         """
         Flush both head_cache and tail_cache to disk

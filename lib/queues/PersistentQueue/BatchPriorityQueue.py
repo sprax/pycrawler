@@ -233,8 +233,8 @@ class BatchPriorityQueue(RecordFactory):
                     map(pQ.put, q.sort(
                             q.accumulate(
                                 q.mergefiles(
-                                    in_files, q._unique_key)),
-                            q._priority_key))
+                                    in_files, (q._unique_key,))),
+                            (q._priority_key,)))
                     # slow version of this generator chain:
                     #merged_lines = []
                     #for x in q.mergefiles(in_files, q._unique_key):

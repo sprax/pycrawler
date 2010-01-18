@@ -1,3 +1,4 @@
+#!/usr/bin/python2.6
 """
 Tests for PersistentQueue.BatchPriorityQueue
 """
@@ -71,11 +72,15 @@ while True:
         records.append(q.get())
     except q.Syncing:
         continue
-    except (Queue.Empty, q.ReadyToSync):
+    except Queue.Empty:
+        print "Empty?"
+        break
+    except q.ReadyToSync:
+        # expected exit point
         break
 elapsed = time() - start
 
-assert len(records) == num
+assert len(records) == num, "\nlen(records) = %d\nnum = %d" % (len(records), num)
 
 records_next = [rec.next for rec in records]
 records_sort = copy.copy(records_next)

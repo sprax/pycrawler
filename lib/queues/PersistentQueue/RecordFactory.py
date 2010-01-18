@@ -238,7 +238,7 @@ class RecordFactory(object):
         args.append("-t%s" % self._delimiter)
         for key in keys:
             numerical = self._template[key] in (int, float) and "n" or ""
-            args.append("-k%d%s" % (key + 1, numerical))
+            args.append("-k%d,%d%s" % (key + 1, key + 2, numerical))
         # pass file names as args
         args += file_names
         #print " ".join(args)
@@ -281,7 +281,7 @@ class RecordFactory(object):
         args.append("-t%s" % self._delimiter)
         for key in keys:
             numerical = self._template[key] in (int, float) and "n" or ""
-            args.append("-k%d%s" % (key + 1, numerical))
+            args.append("-k%d,%d%s" % (key + 1, key + 2, numerical))
         #print " ".join(args)
         sort = subprocess.Popen(
             args=args,

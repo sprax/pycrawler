@@ -11,6 +11,7 @@ import os
 import sys
 import copy
 import blist
+import shutil
 import cPickle as pickle
 import operator
 from time import time
@@ -258,3 +259,102 @@ assert correct == merged, \
     "\ncorrect: %s\nmerged:  %s" % \
     (" ".join([str(x) for x in correct]),
      " ".join([str(x) for x in merged]))
+
+##### test sort on strings
+# make a factory for testing:
+MyRec = PersistentQueue.define_record("MyRec", ("docid", "hostid", "hostname", "relurl"))
+factory = RecordFactory(MyRec, (str, str, str, b64))
+# copy the test data so we can test FIFO.__iter__ on it
+shutil.copytree("tests/url_parts", "url_parts_temp")
+UrlParts = PersistentQueue.define_record("UrlParts", "scheme hostname port relurl")
+f = PersistentQueue.RecordFIFO(UrlParts, (str, str, str, b64), "url_parts_temp")
+# make records for all items in the FIFO
+records = [factory.create(*(
+            md5("".join([u.scheme, "://", u.hostname, u.port, u.relurl])).hexdigest(),
+            md5(u.hostname).hexdigest(),
+            u.hostname, 
+            u.relurl))
+           for u in f]
+shutil.rmtree("url_parts_temp")
+shuffle(records)
+print "checking stream sorting on multiple, reverse-positioned hexadecimal keys"
+records2 = [x for x in factory.sort(records[:num], keys=(1,0), output_strings=False)]
+assert len(records2) == num, "\n\nlen(records2): %d\nnum:  %d" % (len(records2), num)
+# they should be sorted by hostname, so check that first:
+merged = [x.hostid for x in records2]
+correct = copy.copy(merged)
+correct.sort()
+if not correct == merged:
+    disagreements = []
+    for idx in range(len(correct)):
+        if correct[idx] != merged[idx]:
+            disagreements.append((idx, correct[idx], merged[idx]))
+    print "\n\nhostname ordering is wrong\ncorrect: %s\nmerged:  %s" % \
+        (" ".join([str(x) for x in correct]),
+         " ".join([str(x) for x in merged]))
+    print "\n\n" + "\n".join([str(x) for x in disagreements])
+    print "\n\n%d disagreements" % len(disagreements)
+    sys.exit()
+docids = []
+hostnames = {}
+hostname = records2[0].hostname
+for x in records2:
+    if hostname == x.hostname:
+        docids.append(x.docid)
+    else:
+        hostnames[hostname] = hostnames.get(hostname, 0) + 1
+        correct = copy.copy(docids)
+        correct.sort()
+        if not correct == docids:
+            print "\ncorrect: %s\ndocids:  %s" % \
+            (" ".join([str(y) for y in correct]),
+             " ".join([str(y) for y in docids]))
+        hostname = x.hostname
+        docids = []
+for hostname in hostnames:
+    if hostnames[hostname] > 1:
+        print "%d collisions of %s" % (hostnames[hostname], hostname)
+
+"""
+
+this fails, probably because of chars in the hostnames... probably should b64 them.
+
+# now do it with the hostname instead of hostid
+print "checking stream sorting on multiple, reverse-positioned alphanumeric keys"
+records2 = [x for x in factory.sort(records[:num], keys=(2,0), output_strings=False)]
+assert len(records2) == num, "\n\nlen(records2): %d\nnum:  %d" % (len(records2), num)
+# they should be sorted by hostname, so check that first:
+merged = [x.hostname for x in records2]
+correct = copy.copy(merged)
+correct.sort()
+if not correct == merged:
+    disagreements = []
+    for idx in range(len(correct)):
+        if correct[idx] != merged[idx]:
+            disagreements.append((idx, correct[idx], merged[idx]))
+    print "\n\nhostname ordering is wrong\ncorrect: %s\nmerged:  %s" % \
+        (" ".join([str(x) for x in correct]),
+         " ".join([str(x) for x in merged]))
+    print "\n\n" + "\n".join([str(x) for x in disagreements])
+    print "\n\n%d disagreements" % len(disagreements)
+    sys.exit()
+docids = []
+hostnames = {}
+hostname = records2[0].hostname
+for x in records2:
+    if hostname == x.hostname:
+        docids.append(x.docid)
+    else:
+        hostnames[hostname] = hostnames.get(hostname, 0) + 1
+        correct = copy.copy(docids)
+        correct.sort()
+        if not correct == docids:
+            print "\ncorrect: %s\ndocids:  %s" % \
+            (" ".join([str(y) for y in correct]),
+             " ".join([str(y) for y in docids]))
+        hostname = x.hostname
+        docids = []
+for hostname in hostnames:
+    if hostnames[hostname] > 1:
+        print "%d collisions of %s" % (hostnames[hostname], hostname)
+"""
