@@ -10,7 +10,7 @@ implementation of namedtuple() factory in
 /usr/lib/python2.6/collections.py
 
 """
-# $Id: $
+# $Id$
 __copyright__ = "Copyright (c) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009 Python Software Foundation; All Rights Reserved; Copyright 2009, John R. Frank"
 __license__ = "Python License"
 __credits__ = ["Python2.6 namedtuple() implementation in python2.6/collections.py",

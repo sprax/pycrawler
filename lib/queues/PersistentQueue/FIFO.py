@@ -2,7 +2,7 @@
 PersistentQueue.FIFO provides a queue-like interface to a set of flat
 files stored on disk.
 """
-# $Id: $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"

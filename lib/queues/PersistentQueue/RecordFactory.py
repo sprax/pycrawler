@@ -3,7 +3,7 @@
 Simple tools for serializing and deserializing tuples of simple python
 data types, and sorting flat-files and lists of these tuples.
 """
-# $Id: $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"

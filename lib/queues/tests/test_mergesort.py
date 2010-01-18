@@ -10,7 +10,7 @@ jrf@d3-3:~/pycrawler/lib/queues$ python2.6 tests/test_mergesort.py -n 500000
 The answer: slightly better to just sort once, so that's what we'll do
 in BatchPriorityQueue
 """
-#$Id:$
+#$Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"

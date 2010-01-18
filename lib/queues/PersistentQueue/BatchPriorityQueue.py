@@ -2,7 +2,7 @@
 """
 
 """
-# $Id: QueueIndex.py 101 2010-01-07 18:20:08Z postshift@gmail.com $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
