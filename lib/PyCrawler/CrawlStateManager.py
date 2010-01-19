@@ -1,18 +1,12 @@
 #!/usr/bin/python2.6
 """
 CrawlStateManager provides an API to the CrawLState files
-
 """
 # $Id$
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
-"""
-TODO:
-
-Finish building this first version
-"""
 import os
 import sys
 import URL
@@ -21,58 +15,198 @@ import gzip
 import Queue
 import operator
 import traceback
-import PersistentQueue
 import multiprocessing
 import cPickle as pickle
 from time import time, sleep
-from base64 import urlsafe_b64encode
 from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
-from Fetcher import HostInfo, HostInfoSorting
 from Process import Process, multi_syslog
 from hashlib import md5
-from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, FetchInfo
+from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics
+from PersistentQueue import define_record, FIFO, RecordFIFO, BatchPriorityQueue, b64, Static, JSON
+
+HostRecord = define_record("HostRecord", "next start bytes hits hostname data")
+HostRecord_template = (int, int, int, int, str, JSON)
+
+class HostQueue(BatchPriorityQueue):
+    """
+    Maintains a persistent priority queue of HostRecord instances
+    created by a RecordFactory:
+    
+       fields:   next, start, bytes, hits, hostname, data
+       template: int,  int,   int,   int,  str,      JSON
+
+    hostname acts as unique key.  next acts a priority.
+    If next is 0, then all int fields must be 0.
+
+    Since exists not a sufficiently memory-cheap hashing algorithm to
+    detect with certainty if the system has already seen one of the
+    more-than-one-billion hostnames, we only allow batch additions of
+    hostnames.  Otherwise, we would have to create a host record for
+    every URL the system sees, stash them on disk and periodically
+    perform a massive de-duplication.  Instead, we gather hostnames
+    just once -- at the same time that we import new URLs.
+
+    As a consequence, calling report_burst() assumes that the caller
+    got the hostname from this HostQueue sometime *after* the most
+    recent bulk import.  Doing otherwise will corrupt the HostQueue.
+    """
+    def __init__(self, data_path, MAX_BYTE_RATE=2**13, MAX_HIT_RATE=1./15):
+        PersistentQueue.BatchPriorityQueue.__init__(
+            self, HostRecord, HostRecord_template, data_path, 
+            4, # unique_key
+            0, # priority_key
+            defaults = {"next": 0, "start": 0, "bytes": 0, "hits": 0})
+        self.MAX_BYTE_RATE = MAX_BYTE_RATE
+        self.MAX_HIT_RATE  = MAX_HIT_RATE
+
+    def report_burst(hostname, fetch_time, bytes, hits):
+        """
+        Puts a record in dumpQ with this update info for hostname
+        """
+        self.put(attrs={
+                "hostname": hostname, "start": fetch_time, 
+                "bytes": bytes, "hits": hits})
+
+    def update_next(self, rec):
+        rec.next = rec.start + \
+            max(rec.bytes / self.MAX_BYTE_RATE,
+                rec.hits  / self.MAX_HIT_RATE)
+
+    def accumulate(self, records):
+        """
+        De-duplicates host records, keeping only one record per host
+        """
+        state = iter(records).next()
+        for rec in records:
+            if rec.hostname == state.hostname:
+                state.bytes += rec.bytes
+                state.hits  += rec.hits
+                state.start  = min(rec.start, state.start)
+            else:
+                # yield accumulated value, current rec becomes state
+                self.update_next(state)
+                yield state
+                state = rec._asdict()
+        # previous state was last record, so yield it
+        self.update_next(state)
+        yield state
+
+RawFetchRecord = define_record(
+    "RawFetchRecord", 
+    "hostid docid depth score last_modified http_response scheme hostname port relurl data")
+RawFetchRecord_template = \
+    (str,   str,  int,  int,  int,          int,          str,   str,     str, b64,   JSON)
+FetchRecord_defaults = {"depth": 0, "score": 0, 
+                        "last_modified": 0, "http_response": 0,
+                        "scheme": "http", "port": "", "data": {}}
+
+class RawFetchQueue(RecordFIFO):
+    def __init__(self, base_data_path):
+        data_path = os.path.join(base_data_path, "RawFetchQueue")
+        RecordFIFO.__init__(
+            RawFetchRecord, RawFetchRecord_template, data_path,
+            defaults = FetchRecord_defaults)
+    def put(self, attrs):
+        attrs["hostid"], attrs["docid"] = \
+            URL.get_hostid_docid(attrs["scheme"], attrs["hostname"], 
+                                 attrs["port"], attrs["relurl"])
+        RecordFIFO.put(**attrs)
+
+    def put_hfr(self, hfr):
+        """
+        Takes a HostFetchRecord as input and stores it and all of its
+        data["links"] as RawFetchRecords
+        """
+        if "links" in hfr.data:
+            for depth, scheme, hostname, port, relurl in hfr.data["links"]:
+                attrs = {"depth": depth, "scheme": scheme, 
+                         "hostname": hostname, "port": port, 
+                         "relurl": relurl}
+                self.put(attrs)
+        self.put(hfr.__getstate__())
+
+HostFetchRecord = define_record(
+    "HostFetchRecord", 
+    "depth score last_modified http_response scheme hostname port relurl data")
+
+class HostFetchQueue(RecordFIFO):
+    """
+    Manages the import of new URLs from the RawFetchQueue into a
+    specific host's on-disk files.
+    """
+    def __init__(self, base_data_path, hostname):
+        hostbin, hostid = URL.get_hostbin_id(hostname)
+        data_path = os.path.join(base_data_path, hostbin, hostid)
+        HostFetchRecord_template = \
+            (int, int, int, int, str, Static(hostname), str, b64, JSON)
+        RecordFIFO.__init__(
+            self, HostFetchRecord, HostFetchRecord_template, data_path,
+            defaults = FetchRecord_defaults)
+        self.robot_path = os.path.join(data_path, "robots.txt")
+        self.rp = None
+        if os.path.exists(self.robot_path):
+            self.rp = robotparser.RobotFileParser()
+            try:
+                self.rp.parse(
+                    open(self.robot_path).read().splitlines())
+            except Exception, exc:
+                multi_syslog(exc)
+                self.rp = None
+
+    def put_rfr(self, rfr):
+        """ do something with a raw fetch record that presumably came
+        from the RawFetchQueue after a merge sort, so that means this
+        is an accumulator?"""
+        """
+        old accumulator state update:
+        # same docid, so accumulate before returning
+        acc_state.score += current.score
+        acc_state.depth = max(
+            acc_state.depth, 
+            current.depth)
+        if  acc_state.last_modified < current.last_modified:
+            acc_state.last_modified = current.last_modified
+            acc_state.http_response = current.http_response
+            acc_state.content_data  = current.content_data
+        """
+        if self.rp is not None and not \
+                self.rp.can_fetch(self.CRAWLER_NAME, URL.fullurl(rec)):
+            rec.depth = ROBOTS_REJECTED
+        RecordFIFO.put(self, rec)
 
 class CrawlStateManager(Process):
-    """Organizes crawler's state into flat files on disk, which it
-sorts between crawls.
-
-=== Aspects of per-host politeness ===
+    """Organizes crawler's state into periodically sorted flat files
 
 There are two time scales for rate limits with different structure:
 
         1) burst rates: limited in duration and total number of
         fetches, whichever comes first.  bytes-per-second and
-        hits-per-second limited only by the pipe and remote server.
+        hits-per-second limited only by the network and remote server.
 
-        2) long-term rates: limited long-term average bytes-per-second
-        and hits-per-second, whichever is more restrictive.
+        2) long-term rates: limited long-term average MAX_BYTE_RATE
+        and MAX_HIT_RATE, whichever is more restrictive.
 
 The PyCrawler.Fetcher gets robots.txt during each burst, and holds it
 only in memory.
 
-The AnalyzerChain runs an Analyzer created by
-CrawlState.make_analyzer(), and this Analyzer creates
-CrawlState.PID.hosts files, which has lines of this format:
+The Analyzer created by CrawlStateManager.get_analyzerchain() passes
+all records into self.inQ.  The CrawlStateManager puts HostRecords
+into the HostQueue for batch sorting later.  FetchRecords are put into
+the urlQ, which is periodically grouped, accumulated, and split.
 
-    hostbin, hostid, max_score, start_time, total_bytes, total_hits
+urlQ is grouped first on hostid and second on docid, so we can merge
+with each host's FIFOs, which includes applying RobotFileParser.
 
-These files require de-duplication between runs.
+  hostid, docid, state, depth, scheme, hostname, port, relurl, inlinking docid, last_modified, http_response, content_data
 
-
-=== Aspects of per-URL state ===
-
-The Analyzer created by CrawlState.make_analyzer() also stores info
-for every URL in instances of PersistentQueue for each hostid.  The
-records in this queue are:
-
-  docid, state, depth, hostkey, relurl, inlinking docid, last_modified, http_response, content_data
-
-To generate packers for the internal packerQ, the CrawlStateManager
-periodically sorts and merges all the records in an individual host's
-queue.
     """
+    MAX_HITS_RATE = 4 / 60.            # four per minute
+    MAX_BYTE_RATE = 8 * 2**10          # 8 KB/sec
+    MAX_STREAMED_REQUESTS = 100        # max number of streamed requests to allow before re-evaluating politeness
+    #RECHECK_ROBOTS_INTERVAL = 2 * DAYS
+
     name = "CrawlStateManager"
-    def __init__(self, go, id, inQ, outQ, packerQ, config):
+    def __init__(self, go, id, inQ, packerQ, config):
         """
         Setup a go Event
         """
@@ -81,7 +215,6 @@ queue.
             self._debug = config["debug"]
         Process.__init__(self, go)
         self.inQ = inQ
-        self.outQ = outQ
         self.packerQ = packerQ
         self.config = config
         self.hosts_in_flight = None
@@ -95,20 +228,26 @@ queue.
         try:
             self.prepare_process()
             self.hosts_in_flight = 0
-            self.hostQ = PersistentQueue.TriQueue(
-                os.path.join(self.config["data_path"], "hostQ"),
-                marshal=HostInfo,
-                sorting_marshal=HostInfoSorting)
+            self.hostQ = HostQueue(
+                os.path.join(self.config["data_path"], "hostQ"))
+            self.urlQ = PersistentQueue.FIFO(
+                os.path.join(self.config["data_path"], "urlQ"))
+            # main loop updates hostQ and urlQ
             while self._go.is_set():
-                syslog("hostQ: %s" % self.hostQ)
                 if self.packerQ.qsize() < 5:
                     self.make_next_packer()
                 try:
                     info = self.inQ.get_nowait()
-                    self.put(info)
                 except Queue.Empty:
-                    if self.hosts_in_flight == 0:
-                        sleep(2)
+                    if self.packerQ.qsize() > 3: sleep(1)
+                # is it a host returning from service?
+                if isinstance(info, HostInfo):
+                    self.hostQ.put(info)
+                    self.hosts_in_flight -= 1
+                    return
+                # must be a FetchInfo
+                assert isinstance(info, FetchInfo)
+                urlQ.put(info)
                 sleep(1) # slow things down
         except Exception, exc:
             multi_syslog(exc)
@@ -130,44 +269,32 @@ queue.
         ready_to_sync_hosts = False
         while num_urls <= max_urls and num_hosts <= max_hosts:
             try:
-                host = self.hostQ.get(maxP=time())
-            except PersistentQueue.TriQueue.ReadyToSync:
+                host = self.hostQ.get(max_priority=time())
+                num_hosts += 1
+            except BatchPriorityQueue.ReadyToSync:
                 syslog("ready to sync hosts")
                 ready_to_sync_hosts = True
                 break
-            except (Queue.Empty, PersistentQueue.TriQueue.Syncing, 
-                    PersistentQueue.PersistentQueue.NotYet), exc:
-                syslog("not ready to sync hosts, but: %s" % exc)
+            except (Queue.Empty, BatchPriorityQueue.Syncing,
+                    BatchPriorityQueue.NotYet), exc:
+                syslog("not ready to sync hosts, because: %s" % exc)
                 break
-            #syslog(LOG_DEBUG, "got host: %s, available: %s" % (host, self.hostQ._mutex.available()))
-            num_hosts += 1
             urlQ = self.get_urlQ(host)
-            num_per_host = 0
-            while num_urls <= max_urls and \
-                    num_per_host < max_per_host:
-                try:
-                    fetch_info = urlQ.get()
-                except (Queue.Empty, PersistentQueue.TriQueue.Syncing, 
-                        PersistentQueue.PersistentQueue.NotYet), exc:
-                    #syslog("urlQ(%s) --> %s" % (data_path, type(exc)))
-                    urlQ.close()
-                    break
-                except PersistentQueue.TriQueue.ReadyToSync:
-                    #syslog("Syncing urlQ(%s)" % data_path)
-                    urlQ.close_spawn_sync_and_close()
-                    break
-                # keep count of how many are in packer:
-                num_urls += 1
-                num_per_host += 1
-                #syslog(LOG_DEBUG, "adding to packer: %s" % fetch_info)
-                packer.add_fetch_info(fetch_info)
+            try:
+                num_per_host = 0
+                while num_urls <= max_urls and \
+                        num_per_host <= max_per_host:
+                    try:
+                        fetch_info = urlQ.get()
+                        num_urls += 1
+                        num_per_host += 1
+                    except Queue.Empty:
+                        break
+                    packer.add_fetch_info(fetch_info)
+            finally:
+                urlQ.close()
             if num_per_host > 0:
-                #syslog(LOG_DEBUG, "got %d URLs --> in flight: %s" % \
-                #           (num_per_host, host.hostkey))
                 self.hosts_in_flight += 1
-            else:
-                #syslog(LOG_DEBUG, "putting host back")
-                self.hostQ.put(host)
         if num_urls > 0:
             syslog("URL count: %d" % len(packer))
             self.packerQ.put(packer)
@@ -180,126 +307,48 @@ queue.
             self.hostQ.sync()
 
     def get_urlQ(self, host):
-        """
-        Constructs a TriQueue using a subclass of FetchInfo with
-        _defaults modified with the hostkey for later access by
-        FetchInfo.set_external_attrs()
+        return PersistentQueue.RecordFIFO(
+            "HostUrlQ", 
+            "score state last_modified http_response scheme hostname port relurl data",
+            (int, int, int, int, str, Static(host.hostname), str, b64, JSON),
+            os.path.join(self.config["data_path"], host.hostbin, host.hostid))
 
-        This is the only place that urlQ instances are created.
-        """
-        data_path = os.path.join(
-            self.config["data_path"], host.hostbin, host.hostid)
-        new_defaults = copy.copy(FetchInfo._defaults)
-        new_defaults["hostkey"] = host.hostkey
-        class FetchInfoForHost(FetchInfo):
-            _defaults = new_defaults
-        urlQ = PersistentQueue.TriQueue(
-            data_path, 
-            marshal=FetchInfoForHost)
-        return urlQ
+    def process_urlQ(self):
 
-    def put(self, info):
-        """
-        Called on each HostInfo and FetchInfo object that comes
-        through self.inQ.
-
-        This uses the hostbin attr of info to figure it if it belongs
-        to a local hostbin or a remote hostbin, and then sends it
-        there.
-        """
-        if isinstance(info, HostInfo):
-            self.hostQ.put(info)
-            self.hosts_in_flight -= 1
-            return
-        # must be a FetchInfo
-        assert isinstance(info, FetchInfo)
-        if self.config["hostbins"].get_fetch_server(info.hostbin) != self.id:
-            # pass it to the Server.Sender instances that the
-            # FetchServer operates:
-            syslog(LOG_DEBUG, 
-                   "outQ.put(%s%s)" % (info.hostkey, info.relurl))
+        fmc = FetchServerClient(
+            self.hostbins.get_fetch_server(fetch_info.hostbin), 
+            self.authkey)
+        fmc.put(fetch_info)
+        fmc.close()
+        if self.config["hostbins"].get_fetch_server(info.hostname) != self.id:
+            # pass it to FetchServer's Sender
             self.outQ.put(info)
-        else:
-            syslog(LOG_DEBUG, 
-                   "urlQ(%s).put(%s) --> %s" \
-                       % (info.hostkey, info.relurl, info))
-            # need to add a HostInfo to the hostQ
-            host_info = HostInfo({"hostkey": info.hostkey})
-            # These are new host_info that might duplicate existing
-            # host records, and should not increment hosts_in_flight:
-            self.hostQ.put(host_info)
-            syslog(LOG_DEBUG, "hostQ.put(%s)" % info.hostkey)
-            # use the host to open the urlQ:
-            urlQ = self.get_urlQ(host_info)
-            urlQ.put(info)
-            urlQ.close()
-            
-    def get_analyzer(self):
-        """
-        Returns a subclass of Analyzer that has both self.inQ and
-        self.hostQ as instance variables, so that it can stuff data
-        into them as Analyzables come down the chain.
-
-        Called by get_analyzerchain
-        """
-        class CrawlStateAnalyzer(Analyzer):
-            name = "CrawlStateAnalyzer"
-            csm_inQ = self.inQ
-            def prepare(self):
-                syslog("CrawlStateAnalyzer prepared")
-
-            def analyze(self, yzable):
-                """
-                Puts all FetchInfo and HostInfo records into
-                CrawlStateManager.inQ.  Also creates new FetchInfo
-                instances for all the links found in a FetchInfo.
-                """
-                #syslog("analyze(%s) is FetchInfo(%s) or HostInfo(%s)" % (type(yzable), isinstance(yzable, FetchInfo), isinstance(yzable, HostInfo)))
-                if isinstance(yzable, FetchInfo):
-                    self.csm_inQ.put(yzable)
-                    finfos = yzable.make_FetchInfos_for_links()
-                    for fetch_info in finfos:
-                        self.csm_inQ.put(fetch_info)
-                    syslog(LOG_DEBUG, "Created %d records for docid: %s" % 
-                           (len(finfos), yzable.docid))
-                elif isinstance(yzable, HostInfo):
-                    self.csm_inQ.put(yzable)
-                    syslog(LOG_DEBUG, "HostInfo: %s" % yzable.hostkey)
-                return yzable
-        return CrawlStateAnalyzer
 
     def get_analyzerchain(self):
         """
         Creates an AnalyzerChain with these analyzers:
 
             GetLinks (10x)
-            CrawlStateAnalyzer (with a handle to this.urlQ)
+            CrawlStateAnalyzer (with a handle to self.inQ)
             SpeedDiagnostics
 
         This starts the AnalyzerChain and returns it.
         """
+        class CrawlStateAnalyzer(Analyzer):
+            name = "CrawlStateAnalyzer"
+            csm_inQ = self.inQ
+            def analyze(self, yzable):
+                """
+                Puts FetchInfo & HostInfo objects into csm_inQ
+                """
+                self.csm_inQ.put(yzable)
+                return yzable
         try:
             ac = AnalyzerChain(self._go, self._debug)
             ac.append(GetLinks, 10)
-            ac.append(self.get_analyzer(), 1)
+            ac.append(CrawlStateAnalyzer, 1)
             ac.append(SpeedDiagnostics, 1)
             ac.start()
             return ac
         except Exception, exc:
             multi_syslog(exc)
-
-# end of CrawlStateManager
-
-def get_all(data_path):
-    queue = PersistentQueue.PersistentQueue(data_path)
-    while 1:
-        try:
-            rec = queue.get()
-        except Queue.Empty:
-            break
-        print rec.split(DELIMITER)
-    queue.sync()
-
-def stats(data_path):
-    queue = PersistentQueue.PersistentQueue(data_path)
-    print "URL queue has %d records, not de-duplicated" % len(queue)
