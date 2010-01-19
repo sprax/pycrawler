@@ -39,26 +39,26 @@ TODO:
         Return a 6-tuple: (scheme, netloc, path, params, query, fragment).
 """
 
-def make_hostbin(hostid):
+def get_hostbin(hostid):
     "Returns the hostbin for a hostid"
     return "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
 
-def make_hostid_bin(hostkey):
+def get_hostbin_id(hostname):
     """
     Returns the hostid for the hostkey, which is just the hexdigest of
     the md5 sum, and also the hostbin, which is the three directory
     tiers built from the hostid.
     """
-    hostid = md5(hostkey).hexdigest()
-    hostbin = make_hostbin(hostid)
-    return hostid, hostbin
+    hostid = md5(hostname).hexdigest()
+    hostbin = get_hostbin(hostid)
+    return hostbin, hostid
 
-def make_docid(hostkey, relurl):
+def get_hostid_docid(scheme, hostname, port, relurl):
     """
-    Constructs a docid for the absolute URL (is hexdigest of md5 sum)
+    Generates md5 for the hostname and for the fullurl
     """
-    docid = md5(hostkey + relurl).hexdigest()
-    return docid
+    return md5(hostname).hexdigest(), \
+        md5(fullurl(scheme, hostname, port, relurl)).hexdigest()
 
 def get_hostkey_relurl(url, schemes=("http", "https")):
     """
@@ -78,13 +78,56 @@ def get_hostkey_relurl(url, schemes=("http", "https")):
     if scheme not in schemes:
         raise UnsupportedScheme(url)
     hostkey = "%s://%s" % (scheme, o.hostname)
-    if o.port:
-        hostkey += ":%d" % o.port
+    try:
+        if o.port:
+            hostkey += ":%d" % o.port
+    except:
+        raise BadFormat(url)
     # reconstruct relurl without scheme, netloc, nor fragment
     relurl = urlunparse(("", "", o.path, o.params, o.query, ""))
     if relurl == "":
         relurl = "/"
     return hostkey, relurl
+
+def get_parts(url):
+    """
+    Cleanly splits an absolute URL into four strings: "scheme"
+    (without ://), hostname, ":port", and relurl:
+
+         scheme://hostname:port  -- which we call "hostkey"
+         ^^^^^^           ^^^^^
+
+         /relative/path/to/file -- which we call "relurl"
+
+    The colon symbol is included in the port string, if present.
+
+    Also raises appropriate errors as needed.
+    """
+    try:
+        o = urlparse(url)
+    except Exception, e:
+        raise BadFormat(url)
+    scheme = o.scheme.lower()
+    hostname = o.hostname.lower()
+    try:
+        if o.port:
+            port = ":%d" % o.port # int, if parsed without error
+        else:
+            port = ""
+    except:
+        raise BadFormat(url)
+    # reconstruct relurl without scheme, netloc, nor fragment
+    relurl = urlunparse(("", "", o.path, o.params, o.query, ""))
+    if relurl == "":
+        relurl = "/"
+    return scheme, hostname, port, relurl
+
+def fullurl(scheme, hostname=None, port=None, relurl=None):
+    if hasattr(scheme, "hostname"):
+        rec = scheme
+        return "".join((rec.scheme, "://", rec.hostname, rec.port, rec.relurl))
+    else:
+        return "".join((scheme, "://", hostname, port, relurl))
 
 class URLException(Exception):
     """General URL Exception"""
