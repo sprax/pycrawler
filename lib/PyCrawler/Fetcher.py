@@ -75,78 +75,6 @@ except:
 from signal import signal, SIGPIPE, SIG_IGN
 signal(SIGPIPE, SIG_IGN)
 
-class HostInfo(AnalyzerChain.Analyzable):
-    _defaults = {
-        "hostkey": '',
-        "total_hits": 0,
-        "total_bytes": 0,
-        "start_time": 0.,
-        "end_time": 0.,
-        "next_time": 0.,
-        }
-    
-    _key_ordering = [
-        "next_time", "hostbin", "hostkey",
-        "total_hits", "total_bytes",
-        "start_time", "end_time"]
-
-    _val_types = [
-        int, str, str,
-        int, int,
-        int, int]
-
-    # this is used for grouping
-    _sort_key = 2
-
-    def __init__(self, attrs=None):
-        """
-        Creates a HostInfo with hostid and hostbin
-        """
-        AnalyzerChain.Analyzable.__init__(self, attrs)
-        self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
-
-    @classmethod
-    def accumulator(cls, acc_state, line):
-        """
-        De-duplicates host records, keeping only one record per host
-        """
-        if line == "":
-            # previous state was last record, so cause break
-            return None, cls.dumps(acc_state)
-        current = cls.loads(line)[0]
-        if acc_state is None:
-            # first pass accumulation
-            return current, None
-        if current.hostkey == acc_state.hostkey:
-            # same as previous, so check which has content
-            if current.total_hits == 0 and current.total_bytes == 0 \
-                    and current.start_time == 0:
-                # cannot be new, so just ignore it
-                return acc_state, None
-            elif acc_state.total_hits == 0 and acc_state.total_bytes == 0 \
-                    and acc_state.start_time == 0:
-                # current represents a populated record for this host,
-                return current, None
-            else:
-                # pendingQ hitting inQ replacement, aggregate data:
-                current.total_bytes += acc_state.total_bytes
-                current.total_hits  += acc_state.total_hits
-                current.start_time = max(current.start_time, acc_state.start_time)
-                # bad, very bad: abstraction barriers all messed up
-                current.next_time =  current.start_time + \
-                    max(current.total_bytes / Fetcher.MAX_BYTE_RATE,
-                        current.total_hits  / Fetcher.MAX_HITS_RATE)
-                return current, None
-        else:
-            # new one! give back a serialized form as second value,
-            # and 'current' becomes the acc_state:
-            return current, cls.dumps(acc_state)
-
-# this is used for the second sort in the hostsQ (a TriQueue)
-class HostInfoSorting(HostInfo):
-    _sort_key = 0
-    accumulator = None
-
 class Host(PriorityQueue.Queue):
     """
     A simple class for holding information about an individual host.
@@ -257,7 +185,7 @@ class Host(PriorityQueue.Queue):
             self.robots_next = time() + self.fetcher.RECHECK_ROBOTS_INTERVAL
             self.rp = robotparser.RobotFileParser()
             try:
-                self.rp.parse(url_info.raw_data)
+                self.rp.parse(url_info.raw_data.splitlines())
             except Exception, e:
                 syslog("robotparse failed: %s" % str(e))
                 self.rp = None
