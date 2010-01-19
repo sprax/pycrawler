@@ -55,7 +55,7 @@ outQ = multiprocessing.Queue()
 for hostname in hosts:
     hostQ.put(hosts[hostname])
 
-fetcher = Fetcher(hostQ=hostQ, outQ=outQ)
+fetcher = Fetcher(hostQ=hostQ, outQ=outQ, _debug=True)
 fetcher.start()
 
 count = 0
@@ -73,4 +73,11 @@ while fetcher.is_alive():
 
 print "done"
 fetcher.stop()
+while multiprocessing.active_children():
+    print multiprocessing.active_children()
+    try:
+        rec = outQ.get_nowait()
+    except Queue.Empty:
+        sleep(0.1)
+
 print "exiting"
