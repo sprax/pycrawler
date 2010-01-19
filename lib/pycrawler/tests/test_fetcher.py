@@ -37,7 +37,7 @@ fetch_rec_factory = RecordFactory(
     defaults = CrawlStateManager.FetchRecord_defaults)
 
 # make temp copy of url_parts fifo and make records for all items in the FIFO
-shutil.copytree("url_parts", "url_parts_temp")
+shutil.copytree("tests/url_parts", "url_parts_temp")
 UrlParts = define_record("UrlParts", "scheme hostname port relurl")
 f = RecordFIFO(UrlParts, (str, str, str, b64), "url_parts_temp")
 hosts = {}
@@ -72,4 +72,5 @@ while fetcher.is_alive():
         break
 
 print "done"
-        
+fetcher.stop()
+print "exiting"

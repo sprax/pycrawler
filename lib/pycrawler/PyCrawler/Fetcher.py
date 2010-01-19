@@ -333,8 +333,8 @@ the input to an AnalyzerChain.
                 if c.fetch_rec is not None:
                     # happens if mid-fetch when _go clears
                     syslog(LOG_DEBUG, "cleanup: %s" % URL.fullurl(c.fetch_rec))
-                    c.fetch_rec.raw_data = ""
-                    c.fetch_rec.len_fetched_data = 0
+                    c.fetch_rec.data["raw_data"] = ""
+                    c.fetch_rec.data["len_fetched_data"] = 0
                     self.outQ.put(c.fetch_rec)
                     c.fetch_rec = None
                 if c.host is not None:
@@ -357,8 +357,5 @@ the input to an AnalyzerChain.
         # clear temp data, so host can get pickled out over outQ and
         # then garbage collected here
         host.data["conns"] = []
-        del(host.data["conns"])
-        del(host.data["succeeded"])
-        del(host.data["failed"])
         self.outQ.put(host)
 
