@@ -55,7 +55,6 @@ class FetchServer(Process):
         self.relay = mgr.Namespace()
         self.config = None
         self.inQ = multiprocessing.Queue(1000)
-        self.packerQ = None
         self.ManagerClass.register("put", callable=self.inQ.put)
         self.ManagerClass.register("stop", callable=self.stop)
         self.ManagerClass.register("set_config", callable=self.set_config)
@@ -84,14 +83,12 @@ class FetchServer(Process):
             0) handle reload event
 
             1) launch CrawlStateManager
-
-            2) launch Fetcher(s) to consume from packerQ
         """
         try:
             self.prepare_process()
             self.manager = self.ManagerClass(self.address, self.authkey)
             self.manager.start()
-            self.packerQ = multiprocessing.Queue(1000)
+            self.hostQ = multiprocessing.Queue(1000)
             syslog(LOG_DEBUG, "Entering main loop")
             while self._go.is_set():
                 if self.reload.is_set():
@@ -99,7 +96,7 @@ class FetchServer(Process):
                         self.config = copy(self.relay.config)
                         syslog(LOG_DEBUG, "creating & starting CrawlStateManager")
                         self.csm = CrawlStateManager(
-                            self._go, self.id, self.inQ, self.packerQ, self.config)
+                            self._go, self.id, self.inQ, self.hostQ, self.config)
                         self.csm.start()
                     self.reload.clear()
                 if self.config is None:

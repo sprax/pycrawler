@@ -11,48 +11,59 @@ import os
 import sys
 import time
 import traceback
-sys.path.append(os.path.join(os.getcwd(), "lib"))
 
-try:
-    from PyCrawler import URL
-except Exception, exc:
-    msg = "Failed to import PyCrawler.\n"
-    msg += "Were you running tests from trunk/ ?\n"
-    msg += traceback.format_exc(exc)
-    sys.exit(msg)
+sys.path.insert(0, os.getcwd())
+from PyCrawler import URL
 
-def test(*args, **kwargs):
-    p1 = URL.packer()
-    p1.add_url("http://test.host.com/long/long/%s;frag?foo=bar")
-    o = p1.dump()
-    p2 = URL.packer()
-    p2.expand(o)
-    assert o == p2.dump()
-
-    import time
-    num = 10000
-    start = time.time()
-    p = URL.packer()
-    for i in xrange(num):
-        p.add_url("http://test.host.com/long/long/%s;frag?foo=bar")
-    end = time.time()
-    print "packed %s URLs in %s seconds at a rate of %s create/sec" % \
-        (num, end - start, num / (end - start))
-
-    fh = open("tests/URL_lists/u1000.h10")
-    start = time.time()
-    p = URL.packer()
-    c = 0
-    for u in fh.readlines():
-        try:
-            p.add_url(u.strip())
-        except Exception, e:
-            print str(e)
-        c += 1
-    end = time.time()
-    print "packed %s URLs for %d hosts in %s seconds at a rate of %s create/sec" % \
-        (c, len(p.hosts), end - start, num / (end - start))
-    sys.exit()
+def tests():
+    "tests for get_links"
+    fake_doc = """
+<a href="/foo1">1</a>
+<a href="../foo2">2</a>
+<a href="./foo3">3</a>
+<a href="path1//foo4">4</a>
+<a href="path2/..//path3/path4/../../path5//foo5/">4</a>
+"""
+    host = "https://crazyhost.com"
+    errors, links = URL.get_links(host, "/dog/", fake_doc)
+    #pprint.pprint(errors)
+    #pprint.pprint(links)
+    assert host == "".join((links[0][0], "://", links[0][1])), "links[0]: %s" % str(links[0])
+    relurls = [x[3] for x in links]
+    expected_relurls = [
+        "/foo1",
+        "/foo2",
+        "/dog/foo3",
+        "/dog/path1/foo4",
+        "/dog/path5/foo5/",
+        ]
+    wrong = False
+    for expected in expected_relurls:
+        if expected not in relurls:
+            print "Failed to find %s" % expected
+            wrong = True
+    if wrong:
+        raise Exception("Test failed for reasons above")
+    else:
+        print "Test passed"
 
 if __name__ == "__main__":
-    test()
+    import sys
+    import pprint
+    from optparse import OptionParser
+    parser = OptionParser(usage="",
+                           description=__doc__)
+    parser.add_option("--host",     dest="host",   default="",    help="")
+    parser.add_option("--relurl",   dest="relurl", default="",    help="")
+    parser.add_option("--file",     dest="file",   default="",    help="")
+    parser.add_option("--test",     dest="test",   default=False, action="store_true",  help="Run tests for get_links")
+    (options, args)= parser.parse_args()
+    if options.test:
+        tests()
+        sys.exit(0)
+
+    errors, links = URL.get_links(options.host, options.relurl, open(options.file).read())
+    if errors:
+        print "Got errors:"
+        print pprint.pprint(errors)
+    print links

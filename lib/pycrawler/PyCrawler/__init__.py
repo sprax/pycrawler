@@ -19,5 +19,4 @@ import URL
 from Server import FetchServer, FetchClient, PORT, AUTHKEY
 from Fetcher import Fetcher
 from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, SpeedDiagnostics
-from TextProcessing import is_text
 from CrawlStateManager import HostRecord, RawFetchRecord

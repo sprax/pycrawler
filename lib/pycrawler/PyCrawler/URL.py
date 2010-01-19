@@ -14,17 +14,17 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import os
+import re
 import gzip
 import pprint
 import traceback
 import simplejson
 from hashlib import md5
 from urlparse import urlparse, urlunparse
+ACCEPTED_SCHEMES = ("http", "https", "ftp", "ftps")
 """
 TODO:
  
- * get ACCEPTED_SCHEMES from some place better
-
  * fix command line options to make more sense and expose them as a
    script rather than part of this module
 
@@ -38,6 +38,16 @@ TODO:
         <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
         Return a 6-tuple: (scheme, netloc, path, params, query, fragment).
 """
+class URLException(Exception):
+    """General URL Exception"""
+    def __init__(self, url):
+        """puts the URL in a known attr"""
+        self.url = url
+
+class BadFormat(URLException): 
+    """Raised when the urlparse library fails to parse a URL"""
+    def __str__(self):
+        return "%s --> %s" % (self.url, traceback.format_exc(self))
 
 def get_hostbin(hostid):
     "Returns the hostbin for a hostid"
@@ -59,35 +69,6 @@ def get_hostid_docid(scheme, hostname, port, relurl):
     """
     return md5(hostname).hexdigest(), \
         md5(fullurl(scheme, hostname, port, relurl)).hexdigest()
-
-def get_hostkey_relurl(url, schemes=("http", "https")):
-    """
-    Cleanly splits an absolute URL into two strings:
-
-         scheme://hostname  -- which we call "hostkey"
-
-         /relative/path/to/file -- which we call "relurl"
-
-    Also raises appropriate errors as needed.
-    """
-    try:
-        o = urlparse(url)
-    except Exception, e:
-        raise BadFormat(url)
-    scheme = o.scheme.lower()
-    if scheme not in schemes:
-        raise UnsupportedScheme(url)
-    hostkey = "%s://%s" % (scheme, o.hostname)
-    try:
-        if o.port:
-            hostkey += ":%d" % o.port
-    except:
-        raise BadFormat(url)
-    # reconstruct relurl without scheme, netloc, nor fragment
-    relurl = urlunparse(("", "", o.path, o.params, o.query, ""))
-    if relurl == "":
-        relurl = "/"
-    return hostkey, relurl
 
 def get_parts(url):
     """
@@ -129,256 +110,116 @@ def fullurl(scheme, hostname=None, port=None, relurl=None):
     else:
         return "".join((scheme, "://", hostname, port, relurl))
 
-class URLException(Exception):
-    """General URL Exception"""
-    def __init__(self, url):
-        """puts the URL in a known attr"""
-        self.url = url
-
-class BadFormat(URLException): 
-    """Raised when the urlparse library fails to parse a URL"""
-    def __str__(self):
-        return "%s --> %s" % (self.url, traceback.format_exc(self))
-
-class UnsupportedScheme(URLException):
-    """Raised when this URL has a scheme not in the accepted list"""
-    def __str__(self):
-        return ("Unsupported scheme: %s" % self.url)
-
-class NotAcceptedByRegex(URLException):
-    """Raised when a URL fails the accepted regex test"""
-    def __str__(self):
-        return ("Not accepted by regex %s" % self.url)
-
-class RejectedByRegex(URLException): 
-    """Raised when a URL fails the rejected regex test"""
-    def __str__(self):
-        return ("Rejected by regex %s" % self.url)
-
-class packer:
+whitespace_re = re.compile("\s+", re.M)
+def is_text(bytes):
     """
-    A utility for construct a list of hosts and for each host a list
-    of relative urls with link depth and last-modified times for each
-    relurl.
+    Tests if input bytes are text using the same algorithm as used in
+    perl.  Returns a two-tuple:
+
+       (reason string, boolean)
+
     """
-    def __init__(self, schemes=("http", "https")):
-        self.hosts = {}
-        self.schemes = schemes
-        self.accept = None
-        self.reject = None
+    if not bytes:
+        return ("empty string", True)
+    # only decides on the first kb regardless regardless
+    bytes = bytes[:1024]
+    if bytes.find("\0") > -1:
+        return ("is not texty because found \\0", False)
+    startlen = len(bytes)
+    # strip out all printable chars
+    bytes = re.sub("[\040-\176]+", "", bytes)
+    # strip out all whitespace too
+    bytes = whitespace_re.sub("", bytes)
+    # 30% threshhold
+    if len(bytes) > 0.3 * startlen:
+        return ("too much is not text", False)
+    return ("", True)
 
-    def __len__(self):
-        tot = 0
-        for k in self.hosts:
-            tot += len(self.hosts[k])
-        return tot
+anchors_re = re.compile(r"<a\s+([^>]*)>(.*?)</a>")
+href_re = re.compile(r"""href\s*=(\s*'([^']*)'|\s*"([^"]*)"|(\S+))""", re.I)
+scheme_re = re.compile(r"^(\w+)\://(.*)$")
+js_re = re.compile(r"\s*javascript\:", re.I)
+def get_links(hostkey, relurl, text, depth=0, accepted_schemes=ACCEPTED_SCHEMES):
+    """
+    Uses python regexes to extract links from text and uses URL.packer
+    to construct a list of (host, [relurls]) tuples.  Also returns a
+    list of errors encountered.  Usage:
 
-    def set_global_regexes(self, accept=None, reject= None):
-        self.accept = accept
-        self.reject = reject
+    errors, host_and_relurls_list = get_links(hostkey, relurl, text, ACCEPTED_SCHEMES)
 
-    def add_url(
-        self, url, depth=0, last_modified=0, 
-        http_response=None, content_data=None):
-        """
-        Add a URL to the appropriate host's list of relative URLs.
-        depth and last_modified have default values of 0 and 0.
-        """
-        hostkey, relurl = get_hostkey_relurl(url, schemes=self.schemes)
-        self.update(
-            hostkey, relurl, 
-            depth, last_modified, http_response, 
-            content_data,
-           )
-
-    def add_fetch_info(self, fetch_info):
-        """
-        calls update using attrs of fetch_info
-        """
-        self.update(
-            fetch_info.hostkey,
-            fetch_info.relurl,
-            fetch_info.depth,
-            fetch_info.last_modified,
-            fetch_info.http_response,
-            fetch_info.content_data)
-
-    def update(
-        self, hostkey, relurl, depth, 
-        last_modified, http_response, content_data):
-        """
-        An internal method for keeping consistent and unique
-        information.  Use add_url or expand methods instead.
-        """
-        # make sure that hostkeys and relurls are not unicode
-        relurl  = str(relurl)
-        hostkey = str(hostkey)
-        # apply global regexes
-        if self.accept and not self.accept.match(relurl):
-            raise NotAcceptedByRegex(relurl)
-        if self.reject and self.reject.match(relurl):
-            raise RejectedByRegex(relurl)
-        if hostkey not in self.hosts:
-            self.hosts[hostkey] = {}
-        if relurl in self.hosts[hostkey]:
-            (old_depth, old_last_modified, old_http_response, old_content_data) = \
-                self.hosts[hostkey][relurl]
-            # keep the most shallow
-            if old_depth < depth:
-                depth = old_depth
-            # keep the most recent
-            if old_last_modified > last_modified:
-                last_modified = old_last_modified
-            # drop old_http_response and old_content_data and replace
-            # with the new stuff
-            if http_response is None: http_response = old_http_response
-            if content_data is None: content_data = old_content_data
-        self.hosts[ hostkey ][ relurl ] = (depth, last_modified, http_response, content_data)
-
-    def dump_absolute_urls(self, output_path, gz=True):
-        """
-        Returns a list of absolute URLs.
-        """
-        """
-        Serializes the results of self.dump() using simplejson and
-        puts the data into a file at output_path.
-
-        If gz is True (the default), this appends .gz to output_path
-        and writes gzipped data to the file.
-        """
-        parent = os.path.dirname(output_path)
-        if parent and not os.path.exists(parent):
-            os.makedirs(parent)
-        if gz:
-            output_path += ".gz"
-            zbuf = open(output_path, "w")
-            file = gzip.GzipFile(mode = "wb",  fileobj = zbuf, compresslevel = 9)
-        else:
-            file = open(output_path, "w")
-        for hostkey in self.hosts:
-            for relurl in self.hosts[hostkey]:
-                file.write(hostkey + relurl + "\n")
-        file.close()
-        return output_path
-
-    def dump(self):
-        """
-        Dumps a list of two-tuples.  Each tuple has:
-
-            (hostkey, [ [ relurl, depth, last_modified, http_response, content_data ] ])
-
-        """
-        out = []
-        for hostkey in self.hosts:
-            recs = []
-            for relurl in self.hosts[hostkey]:
-                (depth, last_modified, http_response, content_data) = \
-                    self.hosts[hostkey][relurl]
-                recs.append(
-                    (relurl, 
-                      depth, last_modified, http_response,
-                      content_data,
-                     ) 
-                   )
-            out.append((hostkey, recs))
-        return out
-
-    def dump_to_file(self, output_path, gz=True, make_file_name_unique=False):
-        """
-        Serializes the results of self.dump() using simplejson and
-        puts the data into a file at output_path.
-
-        If gz is True (the default), this appends .gz to output_path
-        and writes gzipped data to the file.
-        """
-        parent = os.path.dirname(output_path)
-        if parent and not os.path.exists(parent):
-            os.makedirs(parent)
-        data = simplejson.dumps(self.dump())
-        if make_file_name_unique:
-            output_path += "." + md5(data).hexdigest()
-        if gz:
-            output_path += ".gz"
-            zbuf = open(output_path, "w")
-            file = gzip.GzipFile(mode = "wb",  fileobj = zbuf, compresslevel = 9)
-        else:
-            file = open(output_path, "w")
-        file.write(data)
-        file.close()
-        return output_path
-        
-    def pformat(self):
-        """
-        Returns a pretty formatted string of the packer.
-        """
-        return pprint.pformat(self.dump())
-
-    def expand_from_file(self, input_path, gz=True):
-        """
-        Expands the packer using data deserialized from the file at
-        input_path using simplejson.
-
-        If gz is True (the default), this checks for input_path and
-        also input_path.gz
-        """
-        if os.access(input_path, os.R_OK):
-            zbuf = open(input_path, "r")
-        elif gz:
-            zbuf = open(input_path + ".gz", "r")
-        zfile = gzip.GzipFile(mode = "r",  fileobj = zbuf, compresslevel = 9)
-        json = zfile.read()
-        zfile.close()
-        zbuf.close()
-        data = simplejson.loads(json)
-        return self.expand(data)
-
-    def expand(self, host_and_relurls_list):
-        """
-        Expand relurl lists using output of another URL.packer.dump()
-        """
-        errors = []
-        for (hostkey, relurls) in host_and_relurls_list:
-            for rec in relurls:
-                if len(rec) == 3:
-                    (relurl, depth, last_modified) = rec
-                    http_response = None
-                    content_data = None
-                elif len(rec) == 5:
-                    (relurl, depth, last_modified, http_response, content_data) = rec
-                try:
-                    self.update(hostkey, relurl, depth, last_modified, http_response, content_data)
-                except Exception, e:
-                    errors.append(str(e))
-        return errors
-
-    def merge(self, input_path):
-        """
-        Try first to expand_from_file(input_path) assuming gz=True,
-        and if that fails, then try to add one-URL-per-line
-
-        Returns a list of errors encountered.
-        """
-        errors = []
+    Issues:
+      * if 'relurl' is a dir, then it must end in '/'
+    """
+    links = []
+    errors = []
+    (reason, is_texty) = is_text(text)
+    if not is_texty:
+        errors.append(reason)
+        return errors, links
+    relurl = relurl.strip()  # prevent newline from appearing in constructed links
+    path = relurl.split('/')[:-1] # if a dir, it must end in '/'
+    try:
+        anchors = anchors_re.findall(text)
+    except Exception, exc:
+        errors.append("anchors_re.findall(text) --> %s" % str(exc))
+        return errors, links
+    if not anchors:
+        return errors, links
+    for attrs, anchor in anchors:
+        href_m = href_re.search(attrs)
+        if not href_m:
+            errors.append("found no href attr in %s" % repr(attrs))
+            continue
+        url = href_m.group(2) or href_m.group(3) or href_m.group(4)
+        # do not accept URLs that have funky chars
         try:
-            self.expand_from_file(input_path)
-        except Exception, exc:
+            assert(url == url.encode("utf-8", "delete"))
+        except:
+            errors.append("bad utf-8 in %s" % repr(url))
+            continue
+        # drop javascript: now rather than trying to parse a URL and
+        # reject the scheme.
+        if js_re.match(url):  
+            continue
+        # suck out all whitespace that might have existed in the url,
+        # this usually means it is busted, but try anyway
+        url = whitespace_re.sub("", str(url))
+        scheme_m = scheme_re.match(url)
+        if not scheme_m:
+            # assume is relurl --> construct absolute URL
+            new_path = []
+            if url[0] == "/":
+                path_parts = url.split('/')
+            else:
+                path_parts = path + url.split('/')
+            path_error = False
+            for step in path_parts:
+                if step == "..":
+                    try:
+                        new_path.pop()
+                    except IndexError:
+                        errors.append("bad step count, parse error? %s" % repr(url))
+                        path_error = True
+                        break
+                elif step in [".", ""]:
+                    continue
+                else:
+                    new_path.append(step)
+            if path_error: continue
+            relurl = '/' + '/'.join(new_path)
+            if url[-1] == "/": # is a dir
+                relurl += '/'
+            url = hostkey + relurl
+        else:
+            scheme = scheme_m.group(1)
+            if accepted_schemes and \
+                    scheme not in accepted_schemes:
+                errors.append("rejecting scheme: %s" % repr(scheme))
+                continue
+        try:
+            parts = get_parts(url)
+        except BadFormat, exc:
             errors.append(str(exc))
-            try:
-                fh = open(input_path)
-            except Exception, exc:
-                errors.append("Skipping %s because %s" % (
-                        input_path,
-                        traceback.format_exc(exc),
-                       ))
-                return errors
-            for u in fh.readlines():
-                try:
-                    self.add_url(u.strip())
-                except Exception, exc:
-                    errors.append("skipping %s because %s" % (
-                            repr(u),
-                            traceback.format_exc(exc),
-                           ))
-            fh.close()
-        return errors
-
+        links.append(parts)
+    # return de-duplicated links
+    return errors, list(set(links))

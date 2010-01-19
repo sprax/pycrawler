@@ -206,7 +206,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
     #RECHECK_ROBOTS_INTERVAL = 2 * DAYS
 
     name = "CrawlStateManager"
-    def __init__(self, go, id, inQ, packerQ, config):
+    def __init__(self, go, id, inQ, packed_hostQ, config):
         """
         Setup a go Event
         """
@@ -215,15 +215,13 @@ with each host's FIFOs, which includes applying RobotFileParser.
             self._debug = config["debug"]
         Process.__init__(self, go)
         self.inQ = inQ
-        self.packerQ = packerQ
+        self.packed_hostQ = packed_hostQ
         self.config = config
         self.hosts_in_flight = None
 
     def run(self):
         """
-        Moves records out of inQ and into urlQ
-
-        Keeps next_packer primed with a new packer at all times
+        Moves records out of inQ and into ...
         """
         try:
             self.prepare_process()
@@ -234,12 +232,12 @@ with each host's FIFOs, which includes applying RobotFileParser.
                 os.path.join(self.config["data_path"], "urlQ"))
             # main loop updates hostQ and urlQ
             while self._go.is_set():
-                if self.packerQ.qsize() < 5:
-                    self.make_next_packer()
+                # do something to put hosts into packed_hostQ for the fetchers
                 try:
                     info = self.inQ.get_nowait()
                 except Queue.Empty:
-                    if self.packerQ.qsize() > 3: sleep(1)
+                    # do something to sleep?
+                    pass
                 # is it a host returning from service?
                 if isinstance(info, HostInfo):
                     self.hostQ.put(info)
@@ -252,18 +250,17 @@ with each host's FIFOs, which includes applying RobotFileParser.
         except Exception, exc:
             multi_syslog(exc)
         finally:
-            self.packerQ.close()
+            self.packed_hostQ.close()
             self.hostQ.close()
             syslog(LOG_DEBUG, "Exiting.")
 
-    def make_next_packer(self, max_urls=10000, 
+    def make_next_packed_host(self, max_urls=10000, 
                          max_hosts=100, max_per_host=100):
         """
-        Gets hosts from the hostQ, and makes a packer with up to
-        max_urls URLs.  The number of hosts varies up to max_hosts,
-        and the number of URLs per host varies up to max_per_host
+        Gets hosts from the hostQ, and packs it with upto max_urls
+        URLs.  The number of hosts varies up to max_hosts, and the
+        number of URLs per host varies up to max_per_host
         """
-        packer = URL.packer()
         num_urls = 0
         num_hosts = 0
         ready_to_sync_hosts = False
@@ -285,19 +282,19 @@ with each host's FIFOs, which includes applying RobotFileParser.
                 while num_urls <= max_urls and \
                         num_per_host <= max_per_host:
                     try:
-                        fetch_info = urlQ.get()
+                        fetch_rec = urlQ.get()
                         num_urls += 1
                         num_per_host += 1
+                        host.data["links"].append(fetch_rec)
                     except Queue.Empty:
                         break
-                    packer.add_fetch_info(fetch_info)
             finally:
                 urlQ.close()
             if num_per_host > 0:
                 self.hosts_in_flight += 1
         if num_urls > 0:
-            syslog("URL count: %d" % len(packer))
-            self.packerQ.put(packer)
+            syslog("URL count: %d" % len(host.data["links"]))
+            self.packed_hostQ.put(host)
         else:
             syslog(LOG_DEBUG, "URL count: 0")
         # outside of while loop, if hostQ is ready, and not waiting

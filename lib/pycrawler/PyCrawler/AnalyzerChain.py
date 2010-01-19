@@ -17,7 +17,6 @@ from time import time, sleep
 from random import random
 from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
-from TextProcessing import get_links
 from PersistentQueue import Record
 
 class Analyzable(Record):
@@ -219,49 +218,14 @@ class Analyzer(Process):
         """
         syslog("Cleanup.")
 
-class DumpLinks(Analyzer):
-    name = "DumpLinks"
-    def prepare(self):
-        "makes a packer for this instance of DumpLinks"
-        self.packer = URL.packer()
-    def analyze(self, yzable):
-        """uses TextProcessing.get_links to get URLs out of each page
-        and stores them in this GetLink instance's packer"""
-        if isinstance(yzable, FetchInfo):
-            #syslog(yzable.raw_data)
-            errors, host_and_relurls_list = get_links(
-                yzable.hostkey,  
-                yzable.relurl, 
-                yzable.raw_data, 
-                yzable.depth,
-                ('http',))
-            if errors: syslog(", ".join(["[%s]" % x for x in errors]))
-            errors = self.packer.expand(host_and_relurls_list)
-            if errors: syslog(", ".join(["[%s]" % x for x in errors]))
-            yzable.links = host_and_relurls_list
-            total = 0
-            for hostkey, relurls in host_and_relurls_list:
-                total += len(relurls)
-            syslog("Got %d urls" % total)
-        return yzable
-    def cleanup(self):
-        """
-        Saves this DumpLinks instance's packer in a file
-        """
-        output_path = "DumpLinks.%d" % self.pid
-        self.packer.dump_to_file(
-            output_path, 
-            make_file_name_unique=True,
-           )
-
 class GetLinks(Analyzer):
     name = "GetLinks"
     def analyze(self, yzable):
-        """uses TextProcessing.get_links to get URLs out of each page
+        """uses URL.get_links to get URLs out of each page
         and pass it on as an attr of the yzable"""
         if isinstance(yzable, FetchInfo):
             #syslog(yzable.raw_data)
-            errors, host_and_relurls_list = get_links(
+            errors, host_and_relurls_list = URL.get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
                 yzable.raw_data, 
@@ -269,37 +233,6 @@ class GetLinks(Analyzer):
             if errors: syslog(LOG_DEBUG, ", ".join(["[%s]" % x for x in errors]))
             yzable.links = host_and_relurls_list
         return yzable
-
-class MakeContentData(Analyzer):
-    name = "MakeContentData"
-    def analyze(self, yzable):
-        """uses TextProcessing.get_links to get URLs out of each page
-        and stores them in this GetLink instance's packer"""
-        if isinstance(yzable, FetchInfo):
-            #syslog(yzable.raw_data)
-            errors, host_and_relurls_list = get_links(
-                yzable.hostkey,  
-                yzable.relurl, 
-                yzable.raw_data, 
-                yzable.depth)
-            if errors: syslog(", ".join(["[%s]" % x for x in errors]))
-            errors = self.packer.expand(host_and_relurls_list)
-            if errors: syslog(", ".join(["[%s]" % x for x in errors]))
-            yzable.links = host_and_relurls_list
-            total = 0
-            for hostkey, relurls in host_and_relurls_list:
-                total += len(relurls)
-            syslog("Got %d urls" % total)
-        return yzable
-    def cleanup(self):
-        """
-        Saves this GetLinks instance's packer in a file
-        """
-        output_path = "GetLinks.%d" % self.pid
-        self.packer.dump_to_file(
-            output_path, 
-            make_file_name_unique=True,
-            )
 
 class LogInfo(Analyzer):
     name = "LogInfo"
