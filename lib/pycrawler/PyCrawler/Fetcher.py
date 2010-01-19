@@ -314,7 +314,7 @@ the input to an AnalyzerChain.
             # the meantime.  We just call select() to sleep until some
             # more data is available:
             self.m.select(0.1)
-        # broke out of the poll loop
+        syslog(LOG_DEBUG, "Broke out of poll loop")
         self.cleanup()
         syslog(LOG_DEBUG, "Exiting.")
 
@@ -324,11 +324,10 @@ the input to an AnalyzerChain.
         dereferencing all of them so that the python garbage collector
         can get rid of them as it sees fit.
         """
-        syslog("cleanup")
+        syslog("cleanup after %d fetches" % self.fetches)
         hosts = []
         if self.m is not None:
             # rescue our fetch_rec and hosts
-            syslog("Cleanup after %d fetches" % self.fetches)
             for c in self.m.handles:
                 if c.fetch_rec is not None:
                     # happens if mid-fetch when _go clears
