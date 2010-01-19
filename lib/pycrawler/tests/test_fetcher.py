@@ -2,7 +2,7 @@
 """
 tests for PersistentQueue/RecordFIFO.py
 """
-# $Id: test_recordfifo.py 113 2010-01-18 13:56:55Z postshift@gmail.com $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
