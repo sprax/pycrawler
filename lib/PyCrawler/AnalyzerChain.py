@@ -18,134 +18,22 @@ from random import random
 from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 from TextProcessing import get_links
-from PersistentQueue import nameddict, SafeStr
+from PersistentQueue import Record
 
-class Analyzable(nameddict): 
+class Analyzable(Record):
     """
     Base class for all data bundles passed through AnalyzerChain.
 
     The AnalyzerChain passes data bundles from Analyzer to Analzyer in
     the chain.  These data bundles must be subclasses of Analyzable.
 
-    As a subclass of nameddict, this is picklable, so it can pass
+    As a subclass of Record, this is picklable, so it can pass
     through multiprocessing.Queue and the like.  Also, the nameddict
     provides a single-line serialization scheme that enables the
     CrawlStateManager to store the two primary types of Analyzables in
     the disk-sort-ready PersistentQueue.
     """
-    pass
-
-class FetchInfo(Analyzable):
-    """
-    This carries the primary information about a fetched document.  It
-    stores this information in the nameddict structure of an
-    Analyzable.
-    """
-    _defaults = {
-        "links": [],
-        "metadata": {},
-        "hostkey": "",
-        "relurl": "",
-        "docid": "",
-        "hostid": "",
-        "hostbin": "",
-        "depth": 0,
-        "last_modified": 0,
-        "http_response": None,
-        "state": 0,
-        "start": 0.,
-        "end": 0.,
-        "errno": 0,
-        "errmsg": '',
-        "len_fetched_data": 0,
-        "raw_data": '',
-        "content_data": None,
-        "score": 0.,
-        }
-
-    # This establishes the order of the fields in instances of
-    # PersistentQueue managed by CrawlStateManager
-    _key_ordering = [
-        "docid", "depth", "score", "last_modified", "http_response", 
-        "relurl", "content_data"]
-
-    _val_types = [
-        str, int, float, int, int, 
-        SafeStr, SafeStr]
-
-    _sort_key = 0
-
-    def __init__(self, attrs=None, url=None):
-        """
-        Sets up the Analyzable nature of FetchInfo.
-
-        If provided, 'url' is parsed to get hostkey and relurl.
-
-        This computes hostid, hostbin, and docid.
-        """
-        Analyzable.__init__(self, attrs)
-        if url is not None:
-            self.hostkey, self.relurl = URL.get_hostkey_relurl(url)
-        if self.hostkey:
-            self.set_external_attrs()
-
-    def set_external_attrs(self):
-        "computes properties that require the self.hostkey"
-        assert bool(self.hostkey), "FetchInfo without hostkey! class = %s" % type(self)
-        self.hostid, self.hostbin = URL.make_hostid_bin(self.hostkey)
-        self.docid = URL.make_docid(self.hostkey, self.relurl)
-
-    def make_FetchInfos_for_links(self):
-        """
-        Generates nearly-empty FetchInfo records for every outbound
-        link in the page.
-        """
-        infos = []
-        for hostkey, recs in self.links:
-            for relurl, depth, last_modified, http_response, content_data in recs:
-                infos.append(FetchInfo({
-                            "hostkey": hostkey,
-                            "relurl": relurl,
-                            "depth": depth}))
-        return infos
-
-    @classmethod
-    def accumulate(cls, acc_state, line):
-        """
-        De-duplicates link information by:
-
-            summing scores (odds)
-
-            maximizing depth (negative numbers mean farther from seed)
-
-            maximizing last_modified, and keeping the most recent
-            http_response and content_data
-            
-        """
-        if line == "":
-            # previous state was last record, so cause break
-            return None, cls.dumps(acc_state)
-        current = cls.loads(line)
-        if acc_state is None:
-            # first pass accumulation
-            return current, None
-        if current == acc_state:
-            # same docid, so accumulate before returning
-            acc_state.score += current.score
-            acc_state.depth = max(
-                acc_state.depth, 
-                current.depth)
-            if  acc_state.last_modified < current.last_modified:
-                acc_state.last_modified = current.last_modified
-                acc_state.http_response = current.http_response
-                acc_state.content_data  = current.content_data
-            return acc_state, None
-        else:
-            # new one! give back a serialized form as second value,
-            # and 'current' becomes the acc_state:
-            syslog(LOG_DEBUG, "accumulated a link for: %s" % cls.dumps(acc_state))
-            syslog("FetchInfo I am? %s" % str(type(cls)))
-            return current, cls.dumps(acc_state)
+    __slots__ = ()
 
 class InvalidAnalyzer(Exception): pass
 
