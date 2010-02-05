@@ -21,8 +21,8 @@ def main(options, args):
     ac = AnalyzerChain()
 
     print "adding Analyzers"
-    ac.add_analyzer(1, GetLinks, 10)
-    ac.add_analyzer(3, SpeedDiagnostics, 1)
+    ac.append(GetLinks, 10)
+    ac.append(SpeedDiagnostics, 1)
 
     # Prepare an instance of Fetcher, which can be anything that
     # implements the attrs and methods of Fetcher.Fetcher.
