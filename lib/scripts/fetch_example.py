@@ -14,15 +14,41 @@ import multiprocessing
 from time import time, sleep
 from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from optparse import OptionParser
-from PyCrawler import Fetcher, AnalyzerChain, GetLinks, SpeedDiagnostics, LogInfo
+from PyCrawler import Fetcher, AnalyzerChain, GetLinks, SpeedDiagnostics, LogInfo, URL, CrawlStateManager
+from PersistentQueue import RecordFIFO, RecordFactory, JSON, b64, define_record
+
+def load_queue_from_file(q, f):
+    host_factory = RecordFactory(
+        CrawlStateManager.HostRecord,
+        CrawlStateManager.HostRecord_template,
+        defaults = {"next": 0, "start": 0, "bytes": 0, "hits": 0,
+                    "data": {"succeeded": 0, "failed": 0, "links": []}})
+
+    HostFetchRecord_template = (int, int, int, int, str, str, str, b64, JSON)
+    fetch_rec_factory = RecordFactory(
+            CrawlStateManager.HostFetchRecord,
+            HostFetchRecord_template,
+            defaults = CrawlStateManager.FetchRecord_defaults)
+
+    hosts = {}
+    for u in open(f):
+        scheme, hostname, port, relurl = URL.get_parts(u.strip())
+        if hostname not in hosts:
+            hosts[hostname] = host_factory.create(hostname=hostname)
+        hosts[hostname].data["links"].append(
+            fetch_rec_factory.create(scheme=scheme, hostname=hostname,
+                                     port=port, relurl=relurl))
+    for hostname in hosts:
+        q.put(hosts[hostname])
 
 def main(options, args):
     print "making an AnalyzerChain"
     ac = AnalyzerChain()
 
     print "adding Analyzers"
-    ac.append(GetLinks, 10)
+    ac.append(GetLinks, 1)
     ac.append(SpeedDiagnostics, 1)
+
 
     # Prepare an instance of Fetcher, which can be anything that
     # implements the attrs and methods of Fetcher.Fetcher.
@@ -31,6 +57,7 @@ def main(options, args):
         FETCHER_TIMEOUT  = options.fetcher_timeout,
         NUM_FETCHERS     = options.num_fetchers,
         outQ = ac.inQ,
+        hostQ = multiprocessing.Queue(),
         params = {"CRAWLER_NAME":      options.name,
                   "CRAWLER_HOMEPAGE":  options.homepage },
         )
@@ -45,17 +72,19 @@ def main(options, args):
         for c in range(options.max):
             u = urls.readline()
             if not u: break
-            try:        
+            try:
+                # FIXME: packer doesn't exist.
                 fetcher.packer.add_url(u.strip())
             except Exception, e:
                 print "fetcher.packer.add_url(%s) --> %s" % (u, e)
     else:
         try:
-            errors = fetcher.packer.expand_from_file(options.input)
+            load_queue_from_file(fetcher.hostQ, options.input)
         except Exception, exc:
-            sys.exit("Failed to load gziped json dump of previous Fetcher run:\n\n%s" % exc)
+            print >>sys.stderr, "Failed to load gziped json dump of previous Fetcher run:\n\n%s"
+            raise
 
-    print "fetcher has %d relurls" % len(fetcher.packer)
+    #print "fetcher has %d relurls" % fetcher.host
 
     if options.daemonize:
         try:
@@ -89,8 +118,11 @@ def wait_for_finish(ac, fetcher, quiet=False):
     syslog(LOG_DEBUG, "Fetcher started")
 
     syslog(LOG_DEBUG, "Entering while loop to wait for fetcher to perish.")
+    i = 0
     while fetcher.is_alive():
-        syslog(LOG_DEBUG, "Waiting for fetcher.  Children: %s" % multiprocessing.active_children())
+        i = i + 1
+        if i % 10 == 0:
+            syslog(LOG_DEBUG, "Waiting for fetcher.  Children: %s" % multiprocessing.active_children())
         sleep(1)
 
     syslog(LOG_DEBUG, "fetcher perished, stopping")
