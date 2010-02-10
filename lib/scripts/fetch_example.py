@@ -81,8 +81,8 @@ def main(options, args):
         try:
             load_queue_from_file(fetcher.hostQ, options.input)
         except Exception, exc:
-            print >>sys.stderr, "Failed to load gziped json dump of previous Fetcher run:\n\n%s"
-            raise
+            sys.exit("Failed to load gziped json dump of previous Fetcher run:\n\n%s" % \
+                     traceback.format_exc())
 
     #print "fetcher has %d relurls" % fetcher.host
 
