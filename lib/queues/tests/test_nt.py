@@ -26,3 +26,6 @@ def test_namedtuple():
         assert sys.stdout.getvalue() == 'hi\n'
     finally:
         sys.stdout = oldstdout
+
+if __name__ == '__main__':
+    test_namedtuple()
