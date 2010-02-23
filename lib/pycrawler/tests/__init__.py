@@ -1,5 +1,6 @@
 
-def setUpModule():
+def setup_package():
+    """ set-up module path for nose tests. """
 
     import sys
     import os.path
@@ -11,4 +12,3 @@ def setUpModule():
     sys.path.insert(0, queues)
     sys.path.insert(0, path)
 
-setUpModule()
