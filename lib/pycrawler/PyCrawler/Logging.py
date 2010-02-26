@@ -11,6 +11,7 @@ __version__ = "0.1"
 def __configure_logger__():
     """ initial logger configuration.  can be overridden. """
     import logging
+    import logging.handlers
     import syslog
 
     global logger
