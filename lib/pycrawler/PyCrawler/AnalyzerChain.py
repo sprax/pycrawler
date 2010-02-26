@@ -49,11 +49,6 @@ class FetchInfo(Analyzable):
         del kwargs['url']
 
         super(Analyzable, self).__init__(**kwargs)
-        self.raw_data = raw_data
-        self.depth = depth
-        self.start = start
-        self.end = end
-        self.state = state
 
         self.links = []
 
