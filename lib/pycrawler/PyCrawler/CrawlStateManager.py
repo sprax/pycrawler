@@ -59,7 +59,7 @@ class HostQueue(BatchPriorityQueue):
         self.MAX_BYTE_RATE = MAX_BYTE_RATE
         self.MAX_HIT_RATE  = MAX_HIT_RATE
 
-    def report_burst(hostname, fetch_time, bytes, hits):
+    def report_burst(self, hostname, fetch_time, bytes, hits):
         """
         Puts a record in dumpQ with this update info for hostname
         """
