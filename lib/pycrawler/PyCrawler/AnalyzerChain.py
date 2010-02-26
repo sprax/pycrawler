@@ -37,15 +37,18 @@ class Analyzable(Record):
 class InvalidAnalyzer(Exception): pass
 
 class FetchInfo(Analyzable):
-    __slots__ = ()
+    __slots__ = ('url', 'raw_data', 'depth', 'start', 'end', 'state', 'links')
 
-    def __init__(self, url=None, raw_data=None, depth=None,
-                 start=None, end=None, state=None):
-        scheme, hostname, port, self.relurl = URL.get_parts(url)
+    def __init__(self, **kwargs):
+        scheme, hostname, port, self.relurl = URL.get_parts(kwargs['url'])
         self.hostkey = '%s://%s' % (scheme, hostname)
         if port:
             self.hostkey = self.hostkey + ':%s' % port
+        self.links = []
 
+        del kwargs['url']
+
+        super(Analyzable, self).__init__(**kwargs)
         self.raw_data = raw_data
         self.depth = depth
         self.start = start
