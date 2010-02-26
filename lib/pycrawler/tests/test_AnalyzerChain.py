@@ -10,15 +10,8 @@ __version__ = "0.1"
 import os
 import sys
 import traceback
-sys.path.append(os.path.join(os.getcwd(), "lib"))
 
-try:
-    from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo
-except Exception, exc:
-    msg = "Failed to import PyCrawler.\n"
-    msg += "Were you running tests from trunk/ ?\n"
-    msg += traceback.format_exc(exc)
-    sys.exit(msg)
+from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo
 
 import multiprocessing
 from time import sleep, time
