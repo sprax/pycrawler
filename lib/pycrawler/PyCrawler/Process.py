@@ -8,10 +8,11 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
+import logging
 import traceback
 import multiprocessing
-from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
+from syslog import LOG_NOTICE, LOG_DEBUG, syslog
 
 class Process(multiprocessing.Process):
     """
@@ -29,6 +30,9 @@ class Process(multiprocessing.Process):
         If go is not provided, then create a self._go event, which
         self.prepare_process will set.  self.stop() clears self._go.
         """
+
+        self.logger = logging.Logger('PyCrawler')
+
         if debug is not None:
             self._debug = debug
         if not hasattr(self, "name"):
@@ -43,15 +47,16 @@ class Process(multiprocessing.Process):
         for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
             signal(sig, SIG_IGN)
         self._go.set()
-        openlog(self.name, LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
-        if not self._debug:
-            setlogmask(LOG_UPTO(LOG_INFO))
+        if self._debug:
+            self.logger.setLevel(logging.DEBUG)
+        else:
+            self.logger.setLevel(logging.INFO)
 
     def stop(self):
-        syslog(LOG_DEBUG, "Stop called.")
+        self.logger.debug("Stop called.")
         self._go.clear()
 
-def multi_syslog(level=LOG_DEBUG, msg=None, exc=None):
+def multi_syslog(level=LOG_DEBUG, msg=None, exc=None, logger=None):
     """
     A convenience function for sending multiple lines of information
     to the system log.  The lines can get intermingled with other
@@ -79,7 +84,9 @@ def multi_syslog(level=LOG_DEBUG, msg=None, exc=None):
         msg = ""
     if exc is not None:
         msg += "\n" + traceback.format_exc(exc)
-    rows = msg.splitlines()
-    def log(row):
-        syslog(level, row)
-    map(log, rows)
+
+    if not logger:
+        logger = lambda row: syslog(level, row)
+
+    for row in msg.splitlines():
+        logger(row)

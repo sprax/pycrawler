@@ -13,12 +13,12 @@ import URL
 import copy
 import gzip
 import Queue
+import logging
 import operator
 import traceback
 import multiprocessing
 import cPickle as pickle
 from time import time, sleep
-from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 from hashlib import md5
 from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics
@@ -144,13 +144,16 @@ class HostFetchQueue(RecordFIFO):
             defaults = FetchRecord_defaults)
         self.robot_path = os.path.join(data_path, "robots.txt")
         self.rp = None
+
+        self.logger = logging.getLogger('PyCrawler.CrawlStateManager.HostFetchQueue')
+        
         if os.path.exists(self.robot_path):
             self.rp = robotparser.RobotFileParser()
             try:
                 self.rp.parse(
                     open(self.robot_path).read().splitlines())
             except Exception, exc:
-                multi_syslog(exc)
+                multi_syslog(exc, logger=self.logger.warning)
                 self.rp = None
 
     def put_rfr(self, rfr):
@@ -219,6 +222,8 @@ with each host's FIFOs, which includes applying RobotFileParser.
         self.config = config
         self.hosts_in_flight = None
 
+        self.logger = logging.getLogger('PyCrawler.CrawlStateManager.CrawlStateManager')
+
     def run(self):
         """
         Moves records out of inQ and into ...
@@ -248,11 +253,11 @@ with each host's FIFOs, which includes applying RobotFileParser.
                 urlQ.put(info)
                 sleep(1) # slow things down
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
         finally:
             self.packed_hostQ.close()
             self.hostQ.close()
-            syslog(LOG_DEBUG, "Exiting.")
+            self.logger.debug("Exiting.")
 
     def make_next_packed_host(self, max_urls=10000, 
                          max_hosts=100, max_per_host=100):
@@ -269,12 +274,12 @@ with each host's FIFOs, which includes applying RobotFileParser.
                 host = self.hostQ.get(max_priority=time())
                 num_hosts += 1
             except BatchPriorityQueue.ReadyToSync:
-                syslog("ready to sync hosts")
+                self.logger.info("ready to sync hosts")
                 ready_to_sync_hosts = True
                 break
             except (Queue.Empty, BatchPriorityQueue.Syncing,
                     BatchPriorityQueue.NotYet), exc:
-                syslog("not ready to sync hosts, because: %s" % exc)
+                self.logger.info("not ready to sync hosts, because: %s" % exc)
                 break
             urlQ = self.get_urlQ(host)
             try:
@@ -293,13 +298,13 @@ with each host's FIFOs, which includes applying RobotFileParser.
             if num_per_host > 0:
                 self.hosts_in_flight += 1
         if num_urls > 0:
-            syslog("URL count: %d" % len(host.data["links"]))
+            self.logger.info("URL count: %d" % len(host.data["links"]))
             self.packed_hostQ.put(host)
         else:
-            syslog(LOG_DEBUG, "URL count: 0")
+            self.logger.debug("URL count: 0")
         # outside of while loop, if hostQ is ready, and not waiting
         # for more pendings to return, then launch host sync:
-        syslog("ready_to_sync_hosts: %s, hosts_in_flight: %d" % (ready_to_sync_hosts, self.hosts_in_flight))
+        self.logger.info("ready_to_sync_hosts: %s, hosts_in_flight: %d" % (ready_to_sync_hosts, self.hosts_in_flight))
         if ready_to_sync_hosts and self.hosts_in_flight == 0:
             self.hostQ.sync()
 
@@ -311,6 +316,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
             os.path.join(self.config["data_path"], host.hostbin, host.hostid))
 
     def process_urlQ(self):
+        """ FIXME: info, fetch_info undefined? """
 
         fmc = FetchServerClient(
             self.hostbins.get_fetch_server(fetch_info.hostbin), 
@@ -348,4 +354,4 @@ with each host's FIFOs, which includes applying RobotFileParser.
             ac.start()
             return ac
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)

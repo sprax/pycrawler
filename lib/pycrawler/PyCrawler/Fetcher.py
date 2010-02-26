@@ -34,9 +34,9 @@ import URL
 import copy
 import Queue
 import pycurl
+import logging
 from time import time, sleep
 from signal import signal, SIGPIPE, SIG_IGN
-from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 try:
     from cStringIO import StringIO
@@ -90,7 +90,10 @@ the input to an AnalyzerChain.
         if not hasattr(self, "name"):
             self.name = self.CRAWLER_NAME
         Process.__init__(self, go, self._debug)
-        syslog("Created with useragent: %s" % self.USERAGENT)
+        self.logger = logging.getLogger('PyCrawler.Fetcher.Fetcher')
+
+        self.logger.info("Created with useragent: %s" % self.USERAGENT)
+
         self.hostQ = hostQ
         self.outQ = outQ
         self.m = None             # prep for first loop
@@ -101,15 +104,18 @@ the input to an AnalyzerChain.
         self.freelist = []
 
     def init_curl(self):
-        syslog("pycurl.global_init...")
+        self.logger.info("pycurl.global_init...")
         # This is not threadsafe.  See note above.
         pycurl.global_init(pycurl.GLOBAL_DEFAULT)
-        syslog(str(pycurl.version_info()))
-        syslog(repr(pycurl.version))
+
+        self.logger.info(str(pycurl.version_info()))
+        self.logger.info(repr(pycurl.version))
+
         # This is the one (and only) CurlMulti object that this
         # Fetcher instance will use, until (unless) we pass
         # FETCHES_TO_LIVE and dereference it in cleanup()
-        syslog(LOG_DEBUG, "Creating CurlMulti object...")
+        self.logger.debug("Creating CurlMulti object...")
+
         self.m = pycurl.CurlMulti()
         # Historically, there have been libcurl bugs associated with
         # pipelining.  It appears to work fine in v7.19.4.  Pipelining
@@ -117,7 +123,7 @@ the input to an AnalyzerChain.
         # handshaking.  
         self.m.setopt(pycurl.M_PIPELINING, 1)
         self.m.handles = []
-        syslog(LOG_DEBUG, "Allocating %d Curl objects..." % self.MAX_CONNS)
+        self.logger.debug("Allocating %d Curl objects..." % self.MAX_CONNS)
         for i in range(self.MAX_CONNS):
             try:
                 c = pycurl.Curl()
@@ -129,7 +135,7 @@ the input to an AnalyzerChain.
                 # process without any threads, sustained fetching of
                 # hundreds of thousands has been observed without
                 # segfaulting or GILs,
-                syslog("failed pycurl.Curl(): %s" % str(e))
+                self.logger.error("failed pycurl.Curl(): %s" % str(e))
                 self.cleanup()
                 #self.init_curl()  why would we call this here?
                 break
@@ -160,7 +166,7 @@ the input to an AnalyzerChain.
             self.outQ and self.outQ.qsize() or 0,
             self.fetches, 
             self.FETCHES_TO_LIVE and self.FETCHES_TO_LIVE or -1)
-        syslog(LOG_DEBUG, msg)
+        self.logger.debug(msg)
 
     def run(self):
         """
@@ -172,7 +178,7 @@ the input to an AnalyzerChain.
             self.prepare_process()
             self.main()
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
 
     def main(self):
         "loop until go is cleared"
@@ -180,7 +186,7 @@ the input to an AnalyzerChain.
             self.msg("outer loop")
             if self.FETCHES_TO_LIVE is not None and \
                     self.FETCHES_TO_LIVE < self.fetches:
-                syslog(LOG_DEBUG, "past FETCHES_TO_LIVE, so purging hosts")
+                self.logger.debug("past FETCHES_TO_LIVE, so purging hosts")
                 self.cleanup()
             if self.m is None:
                 # hosts retired, so re-initialize all curl objects:
@@ -212,7 +218,7 @@ the input to an AnalyzerChain.
                 c = self.idlelist.pop()
                 if c.host.data["failed"] >= self.MAX_FAILURES_PER_HOST \
                         and c.host.data["succeeded"] == 0:
-                    syslog(LOG_INFO, c.host.hostkey + "too many failures, retiring.")
+                    self.logger.info(c.host.hostkey + "too many failures, retiring.")
                     self.retire(c.host)
                 else:
                     while fetch_rec is None and self._go.is_set():
@@ -225,12 +231,12 @@ the input to an AnalyzerChain.
                         try:
                             c.setopt(pycurl.URL, url)
                         except Exception, exc:
-                            multi_syslog("URL: %s" % repr(url), exc)
+                            multi_syslog("URL: %s" % repr(url), exc, logger=self.logger.warning)
                             fetch_rec.depth = PYCURL_REJECTED
                             self.outQ.put(fetch_rec)
                             fetch_rec = None # loop to get another
                 if fetch_rec is None:
-                    syslog(LOG_DEBUG, "Disconnecting %s" % c.host.hostname)
+                    self.logger.debug("Disconnecting %s" % c.host.hostname)
                     host = c.host
                     c.host.data["conns"].remove(c)
                     c.host = None
@@ -240,7 +246,7 @@ the input to an AnalyzerChain.
                         self.retire(host)
                     host = None
                     continue  # loop again
-                syslog(LOG_DEBUG, "%s popped: %s" % (c.host.hostname, fetch_rec.relurl))
+                self.logger.debug("%s popped: %s" % (c.host.hostname, fetch_rec.relurl))
                 c.fetch_rec = fetch_rec
                 c.fetch_rec.last_modified = time()
                 c.fp = StringIO()
@@ -250,7 +256,7 @@ the input to an AnalyzerChain.
             # Run the internal curl state machine for the multi stack
             num_handles = self.start_num_handles
             while num_handles >= self.start_num_handles and self._go.is_set():
-                syslog(LOG_DEBUG, "perform")
+                self.logger.debug("perform")
                 ret, num_handles = self.m.perform()
                 if ret != pycurl.E_CALL_MULTI_PERFORM:
                     break
@@ -259,8 +265,8 @@ the input to an AnalyzerChain.
             # Check for curl objects which have terminated, and add them to the freelist
             while self._go.is_set():
                 num_q, ok_list, err_list = self.m.info_read()
-                syslog(LOG_DEBUG, "info_read: num_q(%d), ok_list(%d), err_list(%d)" % \
-                           (num_q, len(ok_list), len(err_list)))
+                self.logger.debug("info_read: num_q(%d), ok_list(%d), err_list(%d)" % \
+                                  (num_q, len(ok_list), len(err_list)))
                 finished_list = []
                 for c in ok_list:
                     # effurl means redirect happened, including
@@ -278,14 +284,15 @@ the input to an AnalyzerChain.
                                 c.fetch_rec.port, c.fetch_rec.relurl = \
                                 URL.get_parts(effurl)
                         except Exception, exc:
-                            multi_syslog(exc)
+                            multi_syslog(exc, logger=self.logger.warning)
                             # now what?  do something graceful...
                     # store download size (maybe was compressed)
                     c.fetch_rec.data["len_fetched_data"] = c.getinfo(pycurl.SIZE_DOWNLOAD)
                     c.fetch_rec.data["raw_data"] = c.fp.getvalue()
                     c.host.data["succeeded"] += 1
                     finished_list.append(c)
-                    syslog("%d bytes: %s" % (c.fetch_rec.data["len_fetched_data"], URL.fullurl(c.fetch_rec)))
+                    self.logger.info("%d bytes: %s" % (c.fetch_rec.data["len_fetched_data"],
+                                                       URL.fullurl(c.fetch_rec)))
                 for c, errno, errmsg in err_list:
                     c.fetch_rec.data["errno"]  = errno
                     c.fetch_rec.data["errmsg"] = errmsg
@@ -293,7 +300,8 @@ the input to an AnalyzerChain.
                     c.fetch_rec.depth = DEAD_LINK
                     c.host.data["failed"] += 1
                     finished_list.append(c)
-                    syslog("Failed: %s (%s) %s" % (errmsg, errno, URL.fullurl(c.fetch_rec)))
+                    self.logger.info("Failed: %s (%s) %s" % (errmsg, errno,
+                                                             URL.fullurl(c.fetch_rec)))
                 for c in finished_list:
                     c.fetch_rec.data["end"]   = time()
                     c.fetch_rec.http_response = c.getinfo(pycurl.RESPONSE_CODE)
@@ -314,9 +322,9 @@ the input to an AnalyzerChain.
             # the meantime.  We just call select() to sleep until some
             # more data is available:
             self.m.select(0.1)
-        syslog(LOG_DEBUG, "Broke out of poll loop")
+        self.logger.debug("Broke out of poll loop")
         self.cleanup()
-        syslog(LOG_DEBUG, "Exiting.")
+        self.logger.debug("Exiting.")
 
     def cleanup(self):
         """
@@ -324,20 +332,20 @@ the input to an AnalyzerChain.
         dereferencing all of them so that the python garbage collector
         can get rid of them as it sees fit.
         """
-        syslog("cleanup after %d fetches" % self.fetches)
+        self.logger.info("cleanup after %d fetches" % self.fetches)
         hosts = []
         if self.m is not None:
             # rescue our fetch_rec and hosts
             for c in self.m.handles:
                 if c.fetch_rec is not None:
                     # happens if mid-fetch when _go clears
-                    syslog(LOG_DEBUG, "cleanup: %s" % URL.fullurl(c.fetch_rec))
+                    self.logger.info("cleanup: %s" % URL.fullurl(c.fetch_rec))
                     c.fetch_rec.data["raw_data"] = ""
                     c.fetch_rec.data["len_fetched_data"] = 0
                     self.outQ.put(c.fetch_rec)
                     c.fetch_rec = None
                 if c.host is not None:
-                    syslog("cleanup: %s" % c.host.hostname)
+                    self.logger.info("cleanup: %s" % c.host.hostname)
                     hosts.append(c.host)
                     c.host.data["conns"].remove(c)
                     c.host = None
@@ -350,7 +358,7 @@ the input to an AnalyzerChain.
             # like pycurl.global_init, this is not threadsafe
             pycurl.global_cleanup()
         except Exception, exc:  
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
 
     def retire(self, host):
         # clear temp data, so host can get pickled out over outQ and

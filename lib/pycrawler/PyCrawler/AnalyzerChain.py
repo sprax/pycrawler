@@ -11,13 +11,14 @@ __version__ = "0.1"
 
 import URL
 import Queue
+import logging
 import traceback
 import multiprocessing
 from time import time, sleep
 from random import random
-from syslog import syslog, LOG_DEBUG, LOG_NOTICE
 from Process import Process, multi_syslog
 from PersistentQueue import Record
+from FetchInfo import FetchInfo
 
 class Analyzable(Record):
     """
@@ -43,6 +44,7 @@ class AnalyzerChain(Process):
         Setup inQ and go Event
         """
         Process.__init__(self, go, debug)
+        self.logger = logging.getLogger('PyCrawler.AnalyzerChain')
         self.inQ  = multiprocessing.Queue(10)
         self._yzers = []
 
@@ -72,9 +74,9 @@ class AnalyzerChain(Process):
         try:
             self.prepare_process()
             if not self._yzers:
-                syslog(LOG_NOTICE, "run called with no analyzers")
+                self.logger.warning("run called with no analyzers")
                 return
-            syslog(LOG_DEBUG, "starting yzers with queues between")
+            self.logger.debug("starting yzers with queues between")
             queues = [multiprocessing.Queue(10)]
             for pos in range(len(self._yzers)):
                 queues.append(multiprocessing.Queue(10))
@@ -85,7 +87,7 @@ class AnalyzerChain(Process):
                 for yzer in yzers:
                     yzer.start()
                 self._yzers[pos] = yzers
-            syslog(LOG_DEBUG, "Starting main loop")
+            self.logger.debug("Starting main loop")
             yzable = None
             in_flight = 0
             total_processed = 0
@@ -111,29 +113,31 @@ class AnalyzerChain(Process):
                         del(yzable)
                     except Exception, exc:
                         multi_syslog("failed to delete yzable: %s"\
-                                         % traceback.format_exc(exc))
+                                         % traceback.format_exc(exc),
+                                     logger=self.logger.warning)
                     total_processed += 1
                 except Queue.Empty:
                     pass
                 # if non are in_flight, then we can sleep here
                 if in_flight == 0: sleep(1)
             # go is clear and none in_flight, stop all analyzers
-            syslog("Finished main loop")
+            self.logger.info("Finished main loop")
             try:
                 self.inQ.close()
                 self.inQ.cancel_join_thread()
             except Exception, exc:
-                multi_syslog(exc)
+                multi_syslog(exc, logger=self.logger.warning)
             # stop all yzers
             for pos in range(len(self._yzers)):
                 for yzer in self._yzers[pos]:
                     try:
                         yzer.stop()
                     except Exception, exc:
-                        multi_syslog("%s(%d)" % (yzer.name, yzer.pid), exc)
-            syslog(LOG_DEBUG, "stopped all Analyzers")
+                        multi_syslog("%s(%d)" % (yzer.name, yzer.pid), exc,
+                                     logger=self.logger.warning)
+            self.logger.debug("stopped all Analyzers")
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
 
     def list_analyzers(self):
         """
@@ -167,7 +171,7 @@ class Analyzer(Process):
         try:
             self.prepare_process()
             self.prepare()
-            syslog(LOG_DEBUG, "Starting.")
+            self.logger.debug("Starting.")
             while self._go.is_set():
                 try:
                     yzable = self.inQ.get_nowait()
@@ -178,11 +182,11 @@ class Analyzer(Process):
                     yzable = self.analyze(yzable)
                 except Exception, exc:
                     multi_syslog(
-                        LOG_NOTICE,
                         msg="analyze failed on: %s%s" % ( \
                             hasattr(yzable, "hostkey") and yzable.hostkey or "",
                             hasattr(yzable, "relurl") and yzable.relurl or ""),
-                        exc=exc)
+                        exc=exc,
+                        logger=self.logger.warning)
                 # this blocks when processes later in the chain block
                 block_count = 0
                 while self._go.is_set():
@@ -191,11 +195,11 @@ class Analyzer(Process):
                         self.outQ.put_nowait(yzable)
                     except Queue.Full:
                         if (block_count % 10) == 0:
-                            syslog(LOG_NOTICE, "Chain blocked for %d seconds" % block_count)
+                            self.logger.warning("Chain blocked for %d seconds" % block_count)
                         sleep(1)
             self.cleanup()
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
 
     def analyze(self, yzable):
         """
@@ -210,13 +214,13 @@ class Analyzer(Process):
         Initialize whatever state you need for your self.analyze(job).
         Create whatever special state or tables this analyzer needs.
         """
-        syslog("Prepare.")
+        self.logger.info("Prepare.")
     def cleanup(self):
         """
         Called at the very end of the multiprocessing.Process.run
         function.
         """
-        syslog("Cleanup.")
+        self.logger.info("Cleanup.")
 
 class GetLinks(Analyzer):
     name = "GetLinks"
@@ -230,16 +234,17 @@ class GetLinks(Analyzer):
                 yzable.relurl, 
                 yzable.raw_data, 
                 yzable.depth)
-            if errors: syslog(LOG_DEBUG, ", ".join(["[%s]" % x for x in errors]))
+            if errors:
+                self.logger.debug(", ".join(["[%s]" % x for x in errors]))
             yzable.links = host_and_relurls_list
         return yzable
 
 class LogInfo(Analyzer):
     name = "LogInfo"
     def analyze(self, yzable):
-        syslog("Analyze called with %s" % yzable)
+        self.logger.info("Analyze called with %s" % yzable)
         if isinstance(yzable, FetchInfo):
-            syslog("Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
+            self.logger.info("Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
         return yzable
 
 class SpeedDiagnostics(Analyzer):
@@ -260,13 +265,13 @@ class SpeedDiagnostics(Analyzer):
     def cleanup(self):
         """send a long message to the log"""
         stop = time()
-        syslog("doing cleanup")
+        self.logger.info("doing cleanup")
         out = ""
         out += "fetcher finished, now analyzing times\n"
         self.deltas.sort()
         out += "%d deltas to consider\n" % len(self.deltas)
         if not self.deltas: 
-            syslog("Apparently saw no URLinfo instances")
+            self.logger.info("Apparently saw no URLinfo instances")
             return
         median = self.deltas[int(round(len(self.deltas)/2.))][0]
         mean = 0.
@@ -277,7 +282,7 @@ class SpeedDiagnostics(Analyzer):
         out += "%.4f mean, %.4f median, %.2f%% succeeded\n" % \
             (mean, median, 100. * success/float(len(self.deltas)))
         begin = 0
-        syslog("entering cleanup for loop")
+        self.logger.info("entering cleanup for loop")
         for i in range(1,11):                      # consider ten bins
             frac = i / 10.
             end = int(len(self.deltas) * frac)     # index number of the last item in this bin
@@ -321,6 +326,6 @@ class SpeedDiagnostics(Analyzer):
                 tot += count
             for bin, count in bins:
                 out += "%s --> %s, %.1f\n" % (bin, count, count / tot)
-        multi_syslog(LOG_NOTICE, out)
-        syslog("SpeedDiagnostics finished")
+        multi_syslog(out, logger=self.logger.debug)
+        self.logger.info("SpeedDiagnostics finished")
 

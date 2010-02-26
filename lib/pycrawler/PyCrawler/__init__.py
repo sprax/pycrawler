@@ -20,3 +20,6 @@ from Server import FetchServer, FetchClient, PORT, AUTHKEY
 from Fetcher import Fetcher
 from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, SpeedDiagnostics
 from CrawlStateManager import HostRecord, RawFetchRecord
+
+# import PyCrawler logger into package namespace.
+from Logging import logger

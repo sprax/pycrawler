@@ -16,12 +16,12 @@ import os
 import Queue
 import daemon  # from PyPI
 import pprint
+import logging
 import traceback
 import multiprocessing
 import multiprocessing.managers
 from copy import copy
 from time import time, sleep
-from syslog import syslog, LOG_INFO, LOG_DEBUG, LOG_NOTICE
 from Fetcher import Fetcher
 from Process import Process, multi_syslog
 from CrawlStateManager import CrawlStateManager
@@ -44,7 +44,11 @@ class FetchServer(Process):
         self.id = "%s:%s" % address
         self.name = "FetchServer:%s" % self.id
         self._debug = debug
+
         Process.__init__(self)
+
+        self.logger = logging.getLogger('PyCrawler.FetchServer.ManagerClass')
+
         self.address = address
         self.authkey = authkey
         self.csm = None # CrawlStateManager created below
@@ -64,9 +68,9 @@ class FetchServer(Process):
         try:
             self.relay.config = config
             self.reload.set()
-            syslog("set_config")
+            self.logger.debug("set_config")
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
 
     def run(self):
         """
@@ -89,24 +93,24 @@ class FetchServer(Process):
             self.manager = self.ManagerClass(self.address, self.authkey)
             self.manager.start()
             self.hostQ = multiprocessing.Queue(1000)
-            syslog(LOG_DEBUG, "Entering main loop")
+            self.logger.debug("Entering main loop")
             while self._go.is_set():
                 if self.reload.is_set():
                     if self.valid_new_config():
                         self.config = copy(self.relay.config)
-                        syslog(LOG_DEBUG, "creating & starting CrawlStateManager")
+                        self.logger.debug("creating & starting CrawlStateManager")
                         self.csm = CrawlStateManager(
                             self._go, self.id, self.inQ, self.hostQ, self.config)
                         self.csm.start()
                     self.reload.clear()
                 if self.config is None:
-                    syslog(LOG_DEBUG, "Waiting for config")
+                    self.logger.debug("Waiting for config")
                     sleep(1)
                     continue
                 # AnalyzerChain records data streaming out of fetchers
                 ac = self.csm.get_analyzerchain()
                 while self._go.is_set() and not self.reload.is_set():
-                    syslog(LOG_DEBUG, "Creating & start Fetcher")
+                    self.logger.debug("Creating & start Fetcher")
                     # could do multiple fetchers here...
                     self.fetcher = Fetcher(
                         go = self._go,
@@ -119,19 +123,19 @@ class FetchServer(Process):
                         #self.config["heart_beat"] = time()
                         sleep(1)
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
             self.stop()
             #for child in multiprocessing.active_children():
             #    try: child.terminate()
             #    except: pass
         finally:
             if self.manager:
-                syslog("Attempting manager.shutdown()")
+                self.logger.info("Attempting manager.shutdown()")
                 self.manager.shutdown()
             while len(multiprocessing.active_children()) > 0:
-                syslog("Waiting for: " + str(multiprocessing.active_children()))
+                self.logger.info("Waiting for: " + str(multiprocessing.active_children()))
                 sleep(1)
-            syslog("Exiting FetchServer.")
+            self.logger.info("Exiting FetchServer.")
 
     def valid_new_config(self):
         """returns bool indicating whether 'config' is valid, i.e. has
@@ -140,23 +144,23 @@ class FetchServer(Process):
         3) fetcher_options that is a dict
         """
         if not hasattr(self.relay, "config"):
-            syslog("invalid config: no config set on relay")
+            self.logger.info("invalid config: no config set on relay")
             return False
         else:
             config = self.relay.config
         if "hostbins" not in config:
-            syslog("invalid config: lacks hostbins")
+            self.logger.info("invalid config: lacks hostbins")
             return False
         elif not hasattr(config["hostbins"], "_fetch_servers"):
-            syslog("invalid config: its hostbins is wrong type")
+            self.logger.info("invalid config: its hostbins is wrong type")
             return False
         elif "frac_to_fetch" not in config or \
                 not isinstance(config["frac_to_fetch"], float):
-            syslog("invalid config: frac_to_fetch should be float")
+            self.logger.info("invalid config: frac_to_fetch should be float")
             return False
         elif "fetcher_options" not in config or \
                 not isinstance(config["fetcher_options"], dict):
-            syslog("invalid config: missing fetcher_options")
+            self.logger.info("invalid config: missing fetcher_options")
             return False
         # must be valid
         return True
@@ -175,6 +179,8 @@ class FetchClient:
         self.stop = self.fm.stop
         self.set_config = self.fm.set_config
 
+        self.logger = logging.getLogger('PyCrawler.Server.FetchClient')
+
     def add_url(self, url):
         """
         Create a new URL record and add it to this FetchServer
@@ -183,7 +189,7 @@ class FetchClient:
         try:
             self.fm.put(yzable)
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
 
 def default_port(hostnames=[""]):
     return ["%s:%s" % (hostname, PORT) for hostname in hostnames]
@@ -214,13 +220,15 @@ class TestHarness(Process):
     name = "FetchServerTestHarness"
     def __init__(self, debug=None):
         Process.__init__(self, go=None, debug=debug)
+        self.logger = logging.getLogger('PyCrawler.TestHarness')
+
     def run(self):
         self.prepare_process()
         try:
-            syslog("Creating & starting FetchServer")
+            self.logger.info("Creating & starting FetchServer")
             fs = FetchServer(debug=self._debug)
             fs.start()
-            syslog("Creating & configurating FetchClient")
+            self.logger.info("Creating & configurating FetchClient")
             fc = FetchClient()            
             fc.set_config({
                     "debug": self._debug,
@@ -234,36 +242,36 @@ class TestHarness(Process):
                         "FETCHER_TIMEOUT":   30000,
                         }
                     })
-            syslog("FetchClient.add_url(\"http://cnn.com\")")
+            self.logger.info("FetchClient.add_url(\"http://cnn.com\")")
             fc.add_url("http://cnn.com")
             while self._go.is_set() and fs.is_alive():
                 sleep(.1)
             # call stop on FetchClient, not FetchServer
             try:
-                syslog("fc.stop()")
+                self.logger.info("fc.stop()")
                 fc.stop()
             except Exception, exc:
-                syslog("FetchClient.stop() --> %s" % exc)
+                self.logger.info("FetchClient.stop() --> %s" % exc)
                 try:
-                    syslog("fs.stop()")
+                    self.logger.info("fs.stop()")
                     fs.stop()
                 except Exception, exc:
-                    syslog("FetchServer.stop() --> %s" % exc)
+                    self.logger.info("FetchServer.stop() --> %s" % exc)
                     try:
                         fs.terminate()
                     except Exception, exc:
-                        syslog("FetchServer.terminate() --> %s" % exc)
+                        self.logger.info("FetchServer.terminate() --> %s" % exc)
             # if anything is alive, terminating it
             for child in multiprocessing.active_children():
-                syslog("Terminating: %s" % repr(child))
+                self.logger.info("Terminating: %s" % repr(child))
                 try: 
                     child.terminate()
                 except Exception, exc: 
-                    multi_syslog(exc)
+                    multi_syslog(exc, logger=self.logger.warning)
         except Exception, exc:
-            multi_syslog(exc)
+            multi_syslog(exc, logger=self.logger.warning)
         finally:
-            syslog("Exiting TestHarness.")
+            self.logger.info("Exiting TestHarness.")
 
 if __name__ == "__main__":
     from optparse import OptionParser
