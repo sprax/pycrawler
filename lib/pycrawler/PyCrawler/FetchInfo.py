@@ -15,7 +15,6 @@ class FetchInfo(Analyzable):
         self.hostkey = '%s://%s' % (scheme, hostname)
         if port:
             self.hostkey = self.hostkey + ':%s' % port
-        self.relurl = relurl
 
         self.raw_data = raw_data
         self.depth = depth
