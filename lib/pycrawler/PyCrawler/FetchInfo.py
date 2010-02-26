@@ -9,7 +9,7 @@ from AnalyzerChain import Analyzable
 import URL
 
 class FetchInfo(Analyzable):
-    def __init__(url=None, raw_data=None, depth=None,
+    def __init__(self, url=None, raw_data=None, depth=None,
                  start=None, end=None, state=None):
         scheme, hostname, port, self.relurl = URL.get_parts(url)
         self.hostkey = '%s://%s' % (scheme, hostname)
