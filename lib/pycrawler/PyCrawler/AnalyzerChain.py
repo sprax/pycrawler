@@ -34,23 +34,29 @@ class Analyzable(Record):
     """
     __slots__ = ()
 
+    def __init__(self, *args, **kwargs):
+        super(Record, self).__init__(*args, **kwargs)
+
 class InvalidAnalyzer(Exception): pass
 
 class FetchInfo(Analyzable):
-    __slots__ = ('url', 'raw_data', 'depth', 'start', 'end', 'state', 'links')
+    """
+    >>> 
+    """
+    __slots__ = ('url', 'raw_data', 'depth', 'start', 'end', 'state', 'links', 'hostkey',
+                 'relurl')
 
-    def __init__(self, **kwargs):
-        scheme, hostname, port, self.relurl = URL.get_parts(kwargs['url'])
-        self.hostkey = '%s://%s' % (scheme, hostname)
+    @classmethod
+    def create(self, url=None, raw_data=None, depth=None, start=None, end=None,
+                 state=None, links=[]):
+        scheme, hostname, port, relurl = URL.get_parts(url)
+        hostkey = '%s://%s' % (scheme, hostname)
         if port:
-            self.hostkey = self.hostkey + ':%s' % port
-        self.links = []
+            hostkey = hostkey + ':%s' % port
 
-        del kwargs['url']
-
-        super(Analyzable, self).__init__(**kwargs)
-
-        self.links = []
+        return FetchInfo(url=url, raw_data=raw_data, depth=depth, start=start,
+                         end=end, state=state, links=links,
+                         hostkey=hostkey, relurl=relurl)
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"

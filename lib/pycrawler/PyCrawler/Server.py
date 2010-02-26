@@ -186,7 +186,7 @@ class FetchClient:
         """
         Create a new URL record and add it to this FetchServer
         """
-        yzable = FetchInfo(url=url)
+        yzable = FetchInfo.create(url=url)
         try:
             self.fm.put(yzable)
         except Exception, exc:
