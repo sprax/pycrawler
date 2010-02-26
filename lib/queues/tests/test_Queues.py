@@ -429,7 +429,7 @@ def rmdir(dir):
         except Exception, exc:
             print "Did not rmtree the dir. " + str(exc)
 
-if __name__ == "__main__":
+def main():
     parser = OptionParser(description="runs tests for PersistentQueue.  Default runs all tests.")
     parser.add_option("-n", "--num", dest="num", default=1000, type=int, help="num items to put/get in tests")
     parser.add_option("--dir", dest="dir", default="data_test_dir", help="path for dir to use in tests")
@@ -496,3 +496,7 @@ if __name__ == "__main__":
         
     if not options.keep:
         rmdir(options.dir)
+
+if __name__ == "__main__":
+    main()
+
