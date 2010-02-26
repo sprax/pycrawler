@@ -18,7 +18,6 @@ from time import time, sleep
 from random import random
 from Process import Process, multi_syslog
 from PersistentQueue import Record
-from FetchInfo import FetchInfo
 
 class Analyzable(Record):
     """
@@ -36,6 +35,24 @@ class Analyzable(Record):
     __slots__ = ()
 
 class InvalidAnalyzer(Exception): pass
+
+class FetchInfo(Analyzable):
+    __slots__ = ()
+
+    def __init__(self, url=None, raw_data=None, depth=None,
+                 start=None, end=None, state=None):
+        scheme, hostname, port, self.relurl = URL.get_parts(url)
+        self.hostkey = '%s://%s' % (scheme, hostname)
+        if port:
+            self.hostkey = self.hostkey + ':%s' % port
+
+        self.raw_data = raw_data
+        self.depth = depth
+        self.start = start
+        self.end = end
+        self.state = state
+
+        self.links = []
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"

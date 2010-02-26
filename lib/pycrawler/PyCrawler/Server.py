@@ -25,6 +25,7 @@ from time import time, sleep
 from Fetcher import Fetcher
 from Process import Process, multi_syslog
 from CrawlStateManager import CrawlStateManager
+from AnalyzerChain import FetchInfo
 
 PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"

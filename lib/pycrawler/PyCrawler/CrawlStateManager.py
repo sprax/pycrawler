@@ -21,7 +21,7 @@ import cPickle as pickle
 from time import time, sleep
 from Process import Process, multi_syslog
 from hashlib import md5
-from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics
+from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, FetchInfo
 from PersistentQueue import define_record, FIFO, RecordFIFO, BatchPriorityQueue, b64, Static, JSON
 
 HostRecord = define_record("HostRecord", "next start bytes hits hostname data")
