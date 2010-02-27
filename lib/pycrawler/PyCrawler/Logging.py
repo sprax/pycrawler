@@ -19,7 +19,7 @@ def __configure_logger__():
     logger = logging.getLogger('PyCrawler')
     logger.setLevel(logging.INFO)
 
-    handler = logging.handlers.SysLogHandler(facility=syslog.LOG_LOCAL0)
+    handler = logging.handlers.SysLogHandler(facility=syslog.LOG_LOCAL0, address='/dev/log')
     logger.addHandler(handler)
 
 __configure_logger__()
