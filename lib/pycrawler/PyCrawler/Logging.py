@@ -8,7 +8,7 @@ __copyright__ = "Copyright 2010, MetaCarta, Inc."
 __license__ = "MIT License"
 __version__ = "0.1"
 
-def __configure_logger__():
+def configure_logger():
     """ initial logger configuration.  can be overridden. """
     import logging
     import logging.handlers
@@ -20,6 +20,12 @@ def __configure_logger__():
     logger.setLevel(logging.INFO)
 
     handler = logging.handlers.SysLogHandler(facility=syslog.LOG_LOCAL0, address='/dev/log')
+    formatter = logging.Formatter('%(filename)s[%(process)d]: %(message)s')
+    handler.setFormatter(formatter)
+
     logger.addHandler(handler)
 
-__configure_logger__()
+    
+    return logger
+
+configure_logger()

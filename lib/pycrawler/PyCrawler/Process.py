@@ -9,6 +9,7 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import logging
+import Logging
 import traceback
 import multiprocessing
 from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
@@ -31,7 +32,8 @@ class Process(multiprocessing.Process):
         self.prepare_process will set.  self.stop() clears self._go.
         """
 
-        self.logger = logging.Logger('PyCrawler')
+
+        self.logger = Logging.configure_logger()
 
         if debug is not None:
             self._debug = debug
