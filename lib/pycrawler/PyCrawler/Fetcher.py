@@ -180,6 +180,108 @@ the input to an AnalyzerChain.
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
 
+    def _process_errors(self, err_list, finished_list):
+        """ Save error information for any error URLs,
+            and mark as finished. """
+        for c, errno, errmsg in err_list:
+            c.fetch_rec.data["errno"]  = errno
+            c.fetch_rec.data["errmsg"] = errmsg
+            c.fetch_rec.data["len_fetched_data"] = 0
+            c.fetch_rec.depth = DEAD_LINK
+            c.host.data["failed"] += 1
+            finished_list.append(c)
+            self.logger.info("Failed: %s (%s) %s" % (errmsg, errno,
+                                                     URL.fullurl(c.fetch_rec)))
+
+    def _process_finished_list(self, finished_list):
+        for c in finished_list:
+            c.fetch_rec.data["end"]   = time()
+            c.fetch_rec.http_response = c.getinfo(pycurl.RESPONSE_CODE)
+            c.fetch_rec.last_modified = c.getinfo(pycurl.INFO_FILETIME)
+            # maintain politeness data
+            c.host.bytes += c.fetch_rec.data["len_fetched_data"]
+            c.host.hits  += 1
+            c.fp.close()
+            c.fp = None
+            c.fetch_rec = None
+            self.m.remove_handle(c)  # when screwed up, this can segfault or hit a GIL
+            self.start_num_handles -= 1
+            self.fetches += 1  # incrementing toward periodic init_curl
+            self.idlelist.append(c)  # maybe we can stream with this host
+
+    def _process_finished_handles(self, ok_list, err_list):
+        finished_list = []
+        for c in ok_list:
+            # effurl means redirect happened, including
+            # directory redirects that simply put a '/' on
+            # relurl, which is needed for
+            # TextProcessing.get_links to function properly
+            effurl = c.getinfo(pycurl.EFFECTIVE_URL)
+            if effurl:
+                # send existence of redirect to crawlstate
+                redirected_fetch_rec = copy.copy(c.fetch_rec)
+                redirected_fetch_rec.depth = REDIRECTED
+                self.outQ.put(redirected_fetch_rec)
+                try:
+                    c.fetch_rec.scheme, c.fetch_rec.hostname, \
+                                        c.fetch_rec.port, c.fetch_rec.relurl = \
+                                        URL.get_parts(effurl)
+                except Exception, exc:
+                    multi_syslog(exc, logger=self.logger.warning)
+                    # now what?  do something graceful...
+            # store download size (maybe was compressed)
+            c.fetch_rec.data["len_fetched_data"] = c.getinfo(pycurl.SIZE_DOWNLOAD)
+            c.fetch_rec.data["raw_data"] = c.fp.getvalue()
+            c.host.data["succeeded"] += 1
+            finished_list.append(c)
+            self.logger.info("%d bytes: %s" % (c.fetch_rec.data["len_fetched_data"],
+                                               URL.fullurl(c.fetch_rec)))
+
+        self._process_errors(err_list, finshed_list)
+        self._process_finished_urls(finished_list)
+
+    def _queue_idle_links(self):
+        while self.idlelist and self._go.is_set():
+            fetch_rec = None
+            c = self.idlelist.pop()
+            if c.host.data["failed"] >= self.MAX_FAILURES_PER_HOST \
+                   and c.host.data["succeeded"] == 0:
+                self.logger.info(c.host.hostkey + "too many failures, retiring.")
+                self.retire(c.host)
+            else:
+                while fetch_rec is None and self._go.is_set():
+                    self.msg("setting next URL")
+                    try:
+                        fetch_rec = c.host.data["links"].pop()
+                    except IndexError:
+                        break
+                    url = URL.fullurl(fetch_rec)
+                    try:
+                        c.setopt(pycurl.URL, url)
+                    except Exception, exc:
+                        multi_syslog("URL: %s" % repr(url), exc, logger=self.logger.warning)
+                        fetch_rec.depth = PYCURL_REJECTED
+                        self.outQ.put(fetch_rec)
+                        fetch_rec = None # loop to get another
+            if fetch_rec is None:
+                self.logger.debug("Disconnecting %s" % c.host.hostname)
+                host = c.host
+                c.host.data["conns"].remove(c)
+                c.host = None
+                self.freelist.append(c)
+                # if was last conn for this host, then retire
+                if len(host.data["conns"]) == 1:
+                    self.retire(host)
+                host = None
+                continue  # loop again
+            self.logger.debug("%s popped: %s" % (c.host.hostname, fetch_rec.relurl))
+            c.fetch_rec = fetch_rec
+            c.fetch_rec.last_modified = time()
+            c.fp = StringIO()
+            c.setopt(pycurl.WRITEFUNCTION, c.fp.write)
+            self.m.add_handle(c)
+            self.start_num_handles += 1
+
     def main(self):
         "loop until go is cleared"
         while self._go.is_set():
@@ -213,46 +315,8 @@ the input to an AnalyzerChain.
                     c.host = host
                     host.data["conns"].append(c)
                     self.idlelist.append(c)
-            while self.idlelist and self._go.is_set():
-                fetch_rec = None
-                c = self.idlelist.pop()
-                if c.host.data["failed"] >= self.MAX_FAILURES_PER_HOST \
-                        and c.host.data["succeeded"] == 0:
-                    self.logger.info(c.host.hostkey + "too many failures, retiring.")
-                    self.retire(c.host)
-                else:
-                    while fetch_rec is None and self._go.is_set():
-                        self.msg("setting next URL")
-                        try:
-                            fetch_rec = c.host.data["links"].pop()
-                        except IndexError:
-                            break
-                        url = URL.fullurl(fetch_rec)
-                        try:
-                            c.setopt(pycurl.URL, url)
-                        except Exception, exc:
-                            multi_syslog("URL: %s" % repr(url), exc, logger=self.logger.warning)
-                            fetch_rec.depth = PYCURL_REJECTED
-                            self.outQ.put(fetch_rec)
-                            fetch_rec = None # loop to get another
-                if fetch_rec is None:
-                    self.logger.debug("Disconnecting %s" % c.host.hostname)
-                    host = c.host
-                    c.host.data["conns"].remove(c)
-                    c.host = None
-                    self.freelist.append(c)
-                    # if was last conn for this host, then retire
-                    if len(host.data["conns"]) == 1:
-                        self.retire(host)
-                    host = None
-                    continue  # loop again
-                self.logger.debug("%s popped: %s" % (c.host.hostname, fetch_rec.relurl))
-                c.fetch_rec = fetch_rec
-                c.fetch_rec.last_modified = time()
-                c.fp = StringIO()
-                c.setopt(pycurl.WRITEFUNCTION, c.fp.write)
-                self.m.add_handle(c)
-                self.start_num_handles += 1
+            self._queue_idle_links()
+
             # Run the internal curl state machine for the multi stack
             num_handles = self.start_num_handles
             while num_handles >= self.start_num_handles and self._go.is_set():
@@ -267,55 +331,7 @@ the input to an AnalyzerChain.
                 num_q, ok_list, err_list = self.m.info_read()
                 self.logger.debug("info_read: num_q(%d), ok_list(%d), err_list(%d)" % \
                                   (num_q, len(ok_list), len(err_list)))
-                finished_list = []
-                for c in ok_list:
-                    # effurl means redirect happened, including
-                    # directory redirects that simply put a '/' on
-                    # relurl, which is needed for
-                    # TextProcessing.get_links to function properly
-                    effurl = c.getinfo(pycurl.EFFECTIVE_URL)
-                    if effurl:
-                        # send existence of redirect to crawlstate
-                        redirected_fetch_rec = copy.copy(c.fetch_rec)
-                        redirected_fetch_rec.depth = REDIRECTED
-                        self.outQ.put(redirected_fetch_rec)
-                        try:
-                            c.fetch_rec.scheme, c.fetch_rec.hostname, \
-                                c.fetch_rec.port, c.fetch_rec.relurl = \
-                                URL.get_parts(effurl)
-                        except Exception, exc:
-                            multi_syslog(exc, logger=self.logger.warning)
-                            # now what?  do something graceful...
-                    # store download size (maybe was compressed)
-                    c.fetch_rec.data["len_fetched_data"] = c.getinfo(pycurl.SIZE_DOWNLOAD)
-                    c.fetch_rec.data["raw_data"] = c.fp.getvalue()
-                    c.host.data["succeeded"] += 1
-                    finished_list.append(c)
-                    self.logger.info("%d bytes: %s" % (c.fetch_rec.data["len_fetched_data"],
-                                                       URL.fullurl(c.fetch_rec)))
-                for c, errno, errmsg in err_list:
-                    c.fetch_rec.data["errno"]  = errno
-                    c.fetch_rec.data["errmsg"] = errmsg
-                    c.fetch_rec.data["len_fetched_data"] = 0
-                    c.fetch_rec.depth = DEAD_LINK
-                    c.host.data["failed"] += 1
-                    finished_list.append(c)
-                    self.logger.info("Failed: %s (%s) %s" % (errmsg, errno,
-                                                             URL.fullurl(c.fetch_rec)))
-                for c in finished_list:
-                    c.fetch_rec.data["end"]   = time()
-                    c.fetch_rec.http_response = c.getinfo(pycurl.RESPONSE_CODE)
-                    c.fetch_rec.last_modified = c.getinfo(pycurl.INFO_FILETIME)
-                    # maintain politeness data
-                    c.host.bytes += c.fetch_rec.data["len_fetched_data"]
-                    c.host.hits  += 1
-                    c.fp.close()
-                    c.fp = None
-                    c.fetch_rec = None
-                    self.m.remove_handle(c)  # when screwed up, this can segfault or hit a GIL
-                    self.start_num_handles -= 1
-                    self.fetches += 1  # incrementing toward periodic init_curl
-                    self.idlelist.append(c)  # maybe we can stream with this host
+                self._process_finished_handles(ok_list, err_list)
                 if num_q == 0:
                     break
             # Currently no more I/O is pending, could do something in
