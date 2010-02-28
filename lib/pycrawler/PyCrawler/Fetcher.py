@@ -238,7 +238,7 @@ the input to an AnalyzerChain.
                                                URL.fullurl(c.fetch_rec)))
 
         self._process_errors(err_list, finished_list)
-        self._process_finished_urls(finished_list)
+        self._process_finished_list(finished_list)
 
     def _queue_idle_links(self):
         while self.idlelist and self._go.is_set():
