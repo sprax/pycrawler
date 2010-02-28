@@ -237,7 +237,7 @@ the input to an AnalyzerChain.
             self.logger.info("%d bytes: %s" % (c.fetch_rec.data["len_fetched_data"],
                                                URL.fullurl(c.fetch_rec)))
 
-        self._process_errors(err_list, finshed_list)
+        self._process_errors(err_list, finished_list)
         self._process_finished_urls(finished_list)
 
     def _queue_idle_links(self):
