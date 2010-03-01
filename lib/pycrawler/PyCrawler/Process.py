@@ -31,9 +31,7 @@ class Process(multiprocessing.Process):
         If go is not provided, then create a self._go event, which
         self.prepare_process will set.  self.stop() clears self._go.
         """
-
-
-        self.logger = Logging.configure_logger()
+        self.logger = Logging.logger
 
         if debug is not None:
             self._debug = debug
@@ -46,6 +44,8 @@ class Process(multiprocessing.Process):
         """
         Set the go Event and open the syslog
         """
+        self.logger = Logging.configure_logger()
+        
         for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
             signal(sig, SIG_IGN)
         self._go.set()
