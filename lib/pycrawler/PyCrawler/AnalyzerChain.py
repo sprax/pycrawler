@@ -171,7 +171,7 @@ class AnalyzerChain(Process):
                             if not pop_queue():
                                 sleep(0.5)
 
-                # if non are in_flight, then we can sleep here
+                # if none are in_flight, then we can sleep here
                 if self.in_flight == 0:
                     sleep(1)
             # go is clear and none in_flight, stop all analyzers
