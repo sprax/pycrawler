@@ -35,7 +35,7 @@ class Analyzable(Record):
     __slots__ = ()
 
     def __init__(self, *args, **kwargs):
-        super(Record, self).__init__(*args, **kwargs)
+        Record.__init__(self, *args, **kwargs)
 
 class InvalidAnalyzer(Exception): pass
 
@@ -65,9 +65,19 @@ class AnalyzerChain(Process):
         Setup inQ and go Event
         """
         Process.__init__(self, go, debug)
-        self.logger = logging.getLogger('PyCrawler.AnalyzerChain')
-        self.inQ  = multiprocessing.Queue(10)
+        if debug:
+            qlen = 1
+        else:
+            qlen = 10
+
+        self.inQ  = multiprocessing.Queue(qlen)
         self._yzers = []
+        self.in_flight = 0
+        self.total_processed = 0
+
+    def prepare_process(self):
+        Process.prepare_process(self)
+        self.logger = logging.getLogger('PyCrawler.AnalyzerChain.AnalyzerChain')
 
     def append(self, analyzer, copies=1):
         """
@@ -98,9 +108,15 @@ class AnalyzerChain(Process):
                 self.logger.warning("run called with no analyzers")
                 return
             self.logger.debug("starting yzers with queues between")
-            queues = [multiprocessing.Queue(10)]
+
+            if self._debug:
+                qlen = 1
+            else:
+                qlen = 10
+
+            queues = [multiprocessing.Queue(qlen)]
             for pos in range(len(self._yzers)):
-                queues.append(multiprocessing.Queue(10))
+                queues.append(multiprocessing.Queue(qlen))
                 (yzer, copies) = self._yzers[pos]
                 yzers = [yzer(queues[pos], queues[pos + 1], 
                               debug=self._debug)
@@ -110,37 +126,54 @@ class AnalyzerChain(Process):
                 self._yzers[pos] = yzers
             self.logger.debug("Starting main loop")
             yzable = None
-            in_flight = 0
-            total_processed = 0
-            while self._go.is_set() or in_flight > 0:
+
+            def pop_queue():
+                try:
+                    my_yzable = queues[-1].get_nowait()
+                    self.in_flight -= 1
+                    # delete each yzable as it exits the chain
+                    try:
+                        del(my_yzable)
+                    except Exception, exc:
+                        multi_syslog("failed to delete yzable: %s"\
+                                         % traceback.format_exc(exc),
+                                     logger=self.logger.warning)
+                    self.total_processed += 1
+                    return 1
+                except Queue.Empty:
+                    return 0
+
+            while self._go.is_set() or self.in_flight > 0:
                 #syslog(
                 #    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
                 #        % (in_flight, total_processed,
                 #           self.inQ.qsize(),
                 #           multiprocessing.active_children()))
+
+                # We simply *must* always attempt to get objects from the queue if
+                # they are available.  it is never acceptable to block on putting things
+                # in the next queue, as there may be things in flight we need.
+                pop_queue()
+
                 try:
                     yzable = self.inQ.get_nowait()
-                    in_flight += 1
+                    self.in_flight += 1
                 except Queue.Empty:
                     yzable = None
                 if yzable is not None:
-                    # this can and should block
-                    queues[0].put(yzable)
-                try:
-                    yzable = queues[-1].get_nowait()
-                    in_flight -= 1
-                    # delete each yzable as it exits the chain
-                    try:
-                        del(yzable)
-                    except Exception, exc:
-                        multi_syslog("failed to delete yzable: %s"\
-                                         % traceback.format_exc(exc),
-                                     logger=self.logger.warning)
-                    total_processed += 1
-                except Queue.Empty:
-                    pass
+                    # We need to try to empty the queue as we put new items in,
+                    # otherwise a deadlock is possible.
+                    while self._go.is_set():
+                        try:
+                            queues[0].put_nowait(yzable)
+                            break
+                        except Queue.Full:
+                            if not pop_queue():
+                                sleep(0.5)
+
                 # if non are in_flight, then we can sleep here
-                if in_flight == 0: sleep(1)
+                if self.in_flight == 0:
+                    sleep(1)
             # go is clear and none in_flight, stop all analyzers
             self.logger.info("Finished main loop")
             try:
@@ -199,6 +232,8 @@ class Analyzer(Process):
                 except Queue.Empty:
                     sleep(1)
                     continue
+                self.logger.debug("Analyzer %s getting ready to process %s" % (type(self).__name__,
+                                                                               yzable))
                 try:
                     yzable = self.analyze(yzable)
                 except Exception, exc:
@@ -209,15 +244,21 @@ class Analyzer(Process):
                         exc=exc,
                         logger=self.logger.warning)
                 # this blocks when processes later in the chain block
-                block_count = 0
+                initial_block = time()
+                last_blocked = initial_block
                 while self._go.is_set():
-                    block_count += 1
                     try:
                         self.outQ.put_nowait(yzable)
+                        break
                     except Queue.Full:
-                        if (block_count % 10) == 0:
-                            self.logger.warning("Chain blocked for %d seconds" % block_count)
+                        cur = time()
+                        if (cur - last_blocked) > 10:
+                            self.logger.warning("Chain blocked for %d seconds" % (cur - initial_block))
+                            last_blocked = cur
                         sleep(1)
+                self.logger.debug("Analyzer %s finished processing %s" % (type(self).__name__,
+                                                                          yzable))
+
             self.cleanup()
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
