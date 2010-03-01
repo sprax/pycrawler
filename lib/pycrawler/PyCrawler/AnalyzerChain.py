@@ -143,6 +143,8 @@ class AnalyzerChain(Process):
                 except Queue.Empty:
                     return 0
 
+            last_in_flight = None
+            last_in_flight_error_report = 0
             while self._go.is_set() or self.in_flight > 0:
                 #syslog(
                 #    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
@@ -157,10 +159,11 @@ class AnalyzerChain(Process):
 
                 try:
                     yzable = self.inQ.get_nowait()
-                    self.in_flight += 1
                 except Queue.Empty:
                     yzable = None
                 if yzable is not None:
+                    self.in_flight += 1
+                    last_in_flight = time()
                     # We need to try to empty the queue as we put new items in,
                     # otherwise a deadlock is possible.
                     while self._go.is_set():
@@ -172,8 +175,17 @@ class AnalyzerChain(Process):
                                 sleep(0.5)
 
                 # if none are in_flight, then we can sleep here
+                curtime = time()
                 if self.in_flight == 0:
                     sleep(1)
+                elif curtime - last_in_flight > 60:
+                    # report warnings if we've been waiting too long!
+                    if curtime - last_in_flight_error_report > 60:
+                        self.logger.warning('Most recent in-flight packet over %d seconds old, ' \
+                                            '%d outstanding!' % (curtime - last_in_flight,
+                                                                 self.in_flight))
+                        last_in_flight_error_report = curtime
+
             # go is clear and none in_flight, stop all analyzers
             self.logger.info("Finished main loop")
             try:
