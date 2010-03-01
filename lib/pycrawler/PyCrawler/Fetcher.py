@@ -103,7 +103,7 @@ the input to an AnalyzerChain.
         self.freelist = []
 
     def prepare_process(self):
-        super(Process, self).prepare_process()
+        Process.prepare_process(self)
         self.logger = logging.getLogger('PyCrawler.Fetcher.Fetcher')
 
     def init_curl(self):
