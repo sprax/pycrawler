@@ -24,6 +24,11 @@ def configure_logger():
     handler.setFormatter(formatter)
 
     logger.addHandler(handler)
+
+    for h in logger.handlers:
+        if h is not handler:
+            logger.removeHandler(h)
+    
     logger.propagate = False
     
     return logger
