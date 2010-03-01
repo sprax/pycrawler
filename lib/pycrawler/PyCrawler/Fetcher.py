@@ -90,7 +90,6 @@ the input to an AnalyzerChain.
         if not hasattr(self, "name"):
             self.name = self.CRAWLER_NAME
         Process.__init__(self, go, self._debug)
-        self.logger = logging.getLogger('PyCrawler.Fetcher.Fetcher')
 
         self.logger.info("Created with useragent: %s" % self.USERAGENT)
 
@@ -102,6 +101,10 @@ the input to an AnalyzerChain.
         #self.start_time = time()
         self.idlelist = []
         self.freelist = []
+
+    def prepare_process(self):
+        super(Process, self).prepare_process()
+        self.logger = logging.getLogger('PyCrawler.Fetcher.Fetcher')
 
     def init_curl(self):
         self.logger.info("pycurl.global_init...")
