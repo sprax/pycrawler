@@ -162,13 +162,15 @@ class AnalyzerChain(Process):
                 except Queue.Empty:
                     yzable = None
                 if yzable is not None:
-                    self.in_flight += 1
-                    last_in_flight = time()
                     # We need to try to empty the queue as we put new items in,
                     # otherwise a deadlock is possible.
                     while self._go.is_set():
                         try:
                             queues[0].put_nowait(yzable)
+                            # We must increment in_flight here, as if _go.is_set() hits,
+                            # we would lose the in-flight packet.
+                            self.in_flight += 1
+                            last_in_flight = time()
                             break
                         except Queue.Full:
                             if not pop_queue():
