@@ -17,6 +17,8 @@ from optparse import OptionParser
 from PyCrawler import Fetcher, AnalyzerChain, GetLinks, SpeedDiagnostics, LogInfo, URL, CrawlStateManager
 from PersistentQueue import RecordFIFO, RecordFactory, JSON, b64, define_record
 
+TIMEOUT=3600
+
 def load_queue_from_file(q, f):
     host_factory = RecordFactory(
         CrawlStateManager.HostRecord,
@@ -38,12 +40,16 @@ def load_queue_from_file(q, f):
         hosts[hostname].data["links"].append(
             fetch_rec_factory.create(scheme=scheme, hostname=hostname,
                                      port=port, relurl=relurl))
+        
     for hostname in hosts:
+        for link in hosts[hostname].data["links"]:
+            assert link.hostname == hostname, "Hostname %s in link record is not the same as hostname %s in host record!" % (link.hostname, hostname)
+
         q.put(hosts[hostname])
 
 def main(options, args):
     print "making an AnalyzerChain"
-    ac = AnalyzerChain()
+    ac = AnalyzerChain(debug=True)
 
     print "adding Analyzers"
     ac.append(GetLinks, 1)
@@ -58,6 +64,7 @@ def main(options, args):
         NUM_FETCHERS     = options.num_fetchers,
         outQ = ac.inQ,
         hostQ = multiprocessing.Queue(),
+        _debug = True,
         params = {"CRAWLER_NAME":      options.name,
                   "CRAWLER_HOMEPAGE":  options.homepage },
         )
@@ -107,7 +114,7 @@ def wait_for_finish(ac, fetcher, quiet=False):
 
     from signal import signal, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM
     for sig in (SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM):
-        signal(sig, lambda a,b: fetcher.go.clear())
+        signal(sig, lambda a,b: fetcher._go.clear())
 
     syslog(LOG_DEBUG, "calling AnalyzerChain.start()")
     ac.start()
@@ -119,9 +126,9 @@ def wait_for_finish(ac, fetcher, quiet=False):
 
     syslog(LOG_DEBUG, "Entering while loop to wait for fetcher to perish.")
     i = 0
-    while fetcher.is_alive():
+    while fetcher.is_alive() and i < TIMEOUT:
         i = i + 1
-        if i % 10 == 0:
+        if i % 60 == 0:
             syslog(LOG_DEBUG, "Waiting for fetcher.  Children: %s" % multiprocessing.active_children())
         sleep(1)
 
