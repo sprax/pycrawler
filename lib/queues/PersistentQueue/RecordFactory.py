@@ -11,6 +11,7 @@ __maintainer__ = "John R. Frank"
 
 import sys
 import bz2
+import copy
 import keyword
 import operator
 import simplejson
@@ -98,8 +99,11 @@ class RecordFactory(object):
         In all cases, the values of Static typed fields are enforced.
         """
         if attrs:
-            _values = {}
-            _values.update(self._defaults)
+            # using deepcopy allows defaults to include lists and dicts that aren't
+            # shared. sharing lists and dicts is not supported for now, and given
+            # that we move objects between processes you aren't likely to get what
+            # you wanted if you specified that anyway.
+            _values = copy.deepcopy(self._defaults)
             _values.update(attrs)
             for idx, name, val in self._static_types:
                 _values[name] = val
