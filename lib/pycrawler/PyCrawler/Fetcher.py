@@ -376,6 +376,15 @@ the input to an AnalyzerChain.
                     self.logger.info("cleanup: %s" % URL.fullurl(c.fetch_rec))
                     c.fetch_rec.data["raw_data"] = ""
                     c.fetch_rec.data["len_fetched_data"] = 0
+
+                    # FIXME: can block, thus preventing us from shutting down
+                    # the process, and also from processing more incoming data
+                    # as it's blocked.
+                    #
+                    # Ideally we could enqueue things to put on the output queue
+                    # in a local list, and not begin crawling additional items
+                    # while the output queue is still full... but we should continue
+                    # processing connections we are already using.
                     self.outQ.put(c.fetch_rec)
                     c.fetch_rec = None
                 if c.host is not None:
