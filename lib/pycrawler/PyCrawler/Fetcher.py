@@ -72,7 +72,8 @@ the input to an AnalyzerChain.
 
     _debug = False
 
-    def __init__(self, go=None, hostQ=None, outQ=None, params={}, **kwargs):
+    def __init__(self, go=None, hostQ=None, outQ=None, params={},
+                 pipelining=False, **kwargs):
         """
         If 'go' is None, then it creates and sets a go Event.
 
@@ -85,13 +86,29 @@ the input to an AnalyzerChain.
         # allow parameters to come as a dict or as kwargs
         params.update(kwargs)
         self.__dict__.update(params)
-        self.USERAGENT = "Mozilla/5.0 (%s; +%s)" % \
-            (self.CRAWLER_NAME, self.CRAWLER_HOMEPAGE)
+
+        user_agent = "Mozilla/5.0 (%s; +%s)" % \
+                     (self.CRAWLER_NAME, self.CRAWLER_HOMEPAGE)
+
+        self.pipelining = pipelining and 1 or 0 # map to 1 or 0 int from bool
+        self.pycurl_options = {
+            'FOLLOWLOCATION': 1,
+            'MAXREDIRS': 5,
+            'CONNECTTIMEOUT': self.CONNECT_TIMEOUT,
+            'TIMEOUT': self.DOWNLOAD_TIMEOUT,
+            'NOSIGNAL': 1,
+            'OPT_FILETIME': 1,
+            'ENCODING': "",
+            'DNS_CACHE_TIMEOUT': -1,
+            'USERAGENT': user_agent,
+            'FRESH_CONNECT': 1, # work around curl crashes from connection reuse mis-aliasing.
+            }
+
         if not hasattr(self, "name"):
             self.name = self.CRAWLER_NAME
         Process.__init__(self, go, self._debug)
 
-        self.logger.info("Created with useragent: %s" % self.USERAGENT)
+        self.logger.info("Created with useragent: %s" % user_agent)
 
         self.hostQ = hostQ
         self.outQ = outQ
@@ -124,7 +141,7 @@ the input to an AnalyzerChain.
         # pipelining.  It appears to work fine in v7.19.4.  Pipelining
         # using HTTP1.1 persistent connections with # keep-alive
         # handshaking.  
-        self.m.setopt(pycurl.M_PIPELINING, 1)
+        self.m.setopt(pycurl.M_PIPELINING, self.pipelining)
         self.m.handles = []
         self.logger.debug("Allocating %d Curl objects..." % self.MAX_CONNS)
         for i in range(self.MAX_CONNS):
@@ -145,15 +162,8 @@ the input to an AnalyzerChain.
             c.fp = None
             c.host = None
             c.fetch_rec = None
-            c.setopt(pycurl.FOLLOWLOCATION, 1)
-            c.setopt(pycurl.MAXREDIRS, 5)
-            c.setopt(pycurl.CONNECTTIMEOUT, self.CONNECT_TIMEOUT)
-            c.setopt(pycurl.TIMEOUT,        self.DOWNLOAD_TIMEOUT)
-            c.setopt(pycurl.NOSIGNAL, 1)
-            c.setopt(pycurl.OPT_FILETIME, 1)
-            c.setopt(pycurl.ENCODING, "")
-            c.setopt(pycurl.DNS_CACHE_TIMEOUT, -1)
-            c.setopt(pycurl.USERAGENT, self.USERAGENT)
+            for k, v in self.pycurl_options.iteritems():
+                c.setopt(getattr(pycurl, k), v)
             self.m.handles.append(c)
         self.freelist = self.m.handles[:]
         self.idlelist = []
