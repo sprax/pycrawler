@@ -224,13 +224,14 @@ class Analyzer(Process):
     .cleanup() and set the 'name' attr.
     """
     name = "Analyzer Base Class"
-    def __init__(self, inQ, outQ, debug):
+    def __init__(self, inQ, outQ, debug=False, trace=False):
         """
         Sets up an inQ, outQ
         """
         Process.__init__(self, go=None, debug=debug)
         self.inQ  = inQ
         self.outQ = outQ
+        self.trace = trace
 
     def run(self):
         """
@@ -246,8 +247,8 @@ class Analyzer(Process):
                 except Queue.Empty:
                     sleep(1)
                     continue
-                self.logger.debug("Analyzer %s getting ready to process %s" % (type(self).__name__,
-                                                                               yzable))
+                self._trace("Analyzer %s getting ready to process %s" % (type(self).__name__,
+                                                                         yzable))
                 try:
                     yzable = self.analyze(yzable)
                 except Exception, exc:
@@ -270,12 +271,19 @@ class Analyzer(Process):
                             self.logger.warning("Chain blocked for %d seconds" % (cur - initial_block))
                             last_blocked = cur
                         sleep(1)
-                self.logger.debug("Analyzer %s finished processing %s" % (type(self).__name__,
-                                                                          yzable))
+                self._trace("Analyzer %s finished processing %s" % (type(self).__name__,
+                                                                    yzable))
 
             self.cleanup()
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
+
+    def _trace(self, *args, **kwargs):
+        """
+        Log debug message if tracing turned on
+        """
+        if self.trace:
+            self.logger.debug(*args, **kwargs)
 
     def analyze(self, yzable):
         """
