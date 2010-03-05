@@ -66,11 +66,11 @@ class AnalyzerChain(Process):
         """
         Process.__init__(self, go, debug)
         if debug:
-            qlen = 1
+            self.qlen = 10
         else:
-            qlen = 10
+            self.qlen = 100
 
-        self.inQ  = multiprocessing.Queue(qlen)
+        self.inQ  = multiprocessing.Queue(self.qlen)
         self._yzers = []
         self.in_flight = 0
         self.total_processed = 0
@@ -109,14 +109,9 @@ class AnalyzerChain(Process):
                 return
             self.logger.debug("starting yzers with queues between")
 
-            if self._debug:
-                qlen = 1
-            else:
-                qlen = 10
-
-            queues = [multiprocessing.Queue(qlen)]
+            queues = [multiprocessing.Queue(self.qlen)]
             for pos in range(len(self._yzers)):
-                queues.append(multiprocessing.Queue(qlen))
+                queues.append(multiprocessing.Queue(self.qlen))
                 (yzer, copies) = self._yzers[pos]
                 yzers = [yzer(queues[pos], queues[pos + 1], 
                               debug=self._debug)
