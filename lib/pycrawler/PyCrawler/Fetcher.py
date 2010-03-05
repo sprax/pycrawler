@@ -307,6 +307,7 @@ the input to an AnalyzerChain.
             if self.FETCHES_TO_LIVE is not None and \
                     self.FETCHES_TO_LIVE < self.fetches:
                 self.logger.debug("past FETCHES_TO_LIVE, so purging hosts")
+                # FIXME: is this safe?  Some fetches can still be live here!!
                 self.cleanup()
             if self.m is None:
                 # hosts retired, so re-initialize all curl objects:
@@ -337,8 +338,7 @@ the input to an AnalyzerChain.
 
             # Run the internal curl state machine for the multi stack
             num_handles = self.start_num_handles
-            while num_handles >= self.start_num_handles and self._go.is_set():
-                self.logger.debug("perform")
+            while self._go.is_set():
                 ret, num_handles = self.m.perform()
                 if ret != pycurl.E_CALL_MULTI_PERFORM:
                     break
