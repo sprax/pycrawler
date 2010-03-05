@@ -25,7 +25,7 @@ Provides a PersistentQueue.FIFO and PersistentQueue.RecordFactory of non-memory-
       url="http://code.google.com/p/pycrawler/",
       license="MIT",
       zip_safe=False,
-      install_requires=[],
+      install_requires=['blist'],
       entry_points="""
       # -*- Entry points: -*-
       """,
