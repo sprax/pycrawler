@@ -65,6 +65,8 @@ class BadFormat(URLException):
     ()
     >>> exc.url
     'http://foo'
+    >>> str(exc)
+    'Invalid URL: http://foo'
     """
 
     def __str__(self):
@@ -112,13 +114,25 @@ def get_parts(url):
     The colon symbol is included in the port string, if present.
 
     Also raises appropriate errors as needed.
+
+    >>> get_parts(None)
+    Traceback (most recent call last):
+        ...
+    BadFormat: Invalid URL: None
+    >>> get_parts('myfile')
+    ('', None, '', 'myfile')
+    >>> get_parts('http://www.python.org')
+    ('http', 'www.python.org', '', '/')
+    >>> get_parts('http://www.python.org:8080')
+    ('http', 'www.python.org', ':8080', '/')
     """
     try:
         o = urlparse(url)
     except Exception, e:
         raise BadFormat(url)
-    scheme = o.scheme.lower()
-    hostname = o.hostname.lower()
+
+    scheme = o.scheme and o.scheme.lower()
+    hostname = o.hostname and o.hostname.lower()
     try:
         if o.port:
             port = ":%d" % o.port # int, if parsed without error
@@ -178,6 +192,11 @@ def get_links(hostkey, relurl, text, depth=0, accepted_schemes=ACCEPTED_SCHEMES)
 
     Issues:
       * if 'relurl' is a dir, then it must end in '/'
+
+    >>> get_links('www.python.org', '/docs', 'This is a link! <a href="foo">My link</a>')
+    ([], [('', None, '', 'www.python.org/foo')])
+    >>> get_links('www.python.org', '/docs', 'This is a link! <a href="ssh://myhost">My link</a>')
+    (["rejecting scheme: 'ssh'"], [])
     """
     links = []
     errors = []
@@ -247,8 +266,8 @@ def get_links(hostkey, relurl, text, depth=0, accepted_schemes=ACCEPTED_SCHEMES)
                 continue
         try:
             parts = get_parts(url)
+            links.append(parts)
         except BadFormat, exc:
             errors.append(str(exc))
-        links.append(parts)
     # return de-duplicated links
     return errors, list(set(links))
