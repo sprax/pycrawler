@@ -32,7 +32,7 @@ TODO:
    more of this
 
 >>> from urlparse import urlparse
->>> urlparse("http://dogs.com/cars;type=a?bob=dog#eat")
+>>> urlparse('http://dogs.com/cars;type=a?bob=dog#eat')
 ('http', 'dogs.com', '/cars', 'type=a', 'bob=dog', 'eat')
         Parse a URL into 6 components:
         <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
