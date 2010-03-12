@@ -11,7 +11,7 @@ import os
 import sys
 import traceback
 
-from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo
+from PyCrawler import AnalyzerChain, Analyzer, GetLinks, LogInfo
 
 import multiprocessing
 from time import sleep, time
@@ -35,7 +35,7 @@ def test(with_broken_analyzer=False):
     openlog("AnalyzerChainTest", LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
 
     syslog(LOG_DEBUG, "making an AnalyzerChain")
-    ac = AnalyzerChain(debug=True)
+    ac = AnalyzerChain.AnalyzerChain(debug=True)
 
     def stop(a=None, b=None):
         syslog(LOG_DEBUG, "received %s" % a)
@@ -51,13 +51,13 @@ def test(with_broken_analyzer=False):
         syslog(LOG_DEBUG, "adding a broken Analyzer")
         ac.append(BrokenAnalyzer, 3)
     syslog(LOG_DEBUG, "adding Analyzers")
-    ac.append(GetLinks, 10)
-    ac.append(LogInfo, 1)
+    ac.append(AnalyzerChain.GetLinks, 10)
+    ac.append(AnalyzerChain.LogInfo, 1)
 
     syslog(LOG_DEBUG, "Making FetchInfo")
     hostkey = "http://www.cnn.com"
     text = "This is a test document." #urllib.urlopen(hostkey).read()
-    u = FetchInfo(attrs={
+    u = AnalyzerChain.FetchInfo(attrs={
             "hostkey": hostkey, 
             "relurl":  "/", 
             "depth":   0, 
