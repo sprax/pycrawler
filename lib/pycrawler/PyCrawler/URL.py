@@ -68,7 +68,7 @@ class BadFormat(URLException):
     """
 
     def __str__(self):
-        return "%s --> %s" % (self.url, traceback.format_exc(self))
+        return "Invalid URL: %s" % self.url
 
 def get_hostbin(hostid):
     """
