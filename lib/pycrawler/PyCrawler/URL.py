@@ -39,18 +39,44 @@ TODO:
         Return a 6-tuple: (scheme, netloc, path, params, query, fragment).
 """
 class URLException(Exception):
-    """General URL Exception"""
+    """General URL Exception
+
+    >>> exc=URLException('http://foo')
+    >>> exc
+    URLException()
+    >>> exc.args
+    ()
+    >>> exc.url
+    'http://foo'
+    >>> str(exc)
+    ''
+    """
     def __init__(self, url):
         """puts the URL in a known attr"""
         self.url = url
 
 class BadFormat(URLException): 
-    """Raised when the urlparse library fails to parse a URL"""
+    """Raised when the urlparse library fails to parse a URL.
+
+    >>> exc=BadFormat('http://foo')
+    >>> exc
+    BadFormat()
+    >>> exc.args
+    ()
+    >>> exc.url
+    'http://foo'
+    """
+
     def __str__(self):
         return "%s --> %s" % (self.url, traceback.format_exc(self))
 
 def get_hostbin(hostid):
-    "Returns the hostbin for a hostid"
+    """
+    Returns the hostbin for a hostid
+
+    >>> get_hostbin('0123456789abcdef0123456789abcdef')
+    '01/23/45'
+    """
     return "/".join([hostid[:2], hostid[2:4], hostid[4:6]])
 
 def get_hostbin_id(hostname):
@@ -58,6 +84,9 @@ def get_hostbin_id(hostname):
     Returns the hostid for the hostkey, which is just the hexdigest of
     the md5 sum, and also the hostbin, which is the three directory
     tiers built from the hostid.
+
+    >>> get_hostbin_id('python.org')
+    ('db/0f/e8', 'db0fe87d2a4445fb20f06fa792ac61ea')
     """
     hostid = md5(hostname).hexdigest()
     hostbin = get_hostbin(hostid)
