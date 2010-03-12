@@ -34,10 +34,11 @@ class Process(multiprocessing.Process):
         syslog.syslog("stopping, pid: %d" % os.getpid())
         self.go.clear()
 
-syslog.syslog("creating process, pid: %d" % os.getpid())
-p = Process()
-p.start()
+if __name__ == '__main__':
+    syslog.syslog("creating process, pid: %d" % os.getpid())
+    p = Process()
+    p.start()
 
-sleep(1)
+    sleep(1)
 
-p.stop()
+    p.stop()
