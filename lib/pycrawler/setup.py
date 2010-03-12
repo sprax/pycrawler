@@ -28,7 +28,7 @@ Provides a web crawler.
       zip_safe=False,
       install_requires=['pycurl', 'PersistentQueue', 'daemon', 'simplejson'],
 
-      setup_requires=['coverage', 'nose'],
+      setup_requires=['coverage', 'nose>=0.11'],
 
       entry_points="""
       # -*- Entry points: -*-
