@@ -27,6 +27,9 @@ Provides a web crawler.
       license="MIT",
       zip_safe=False,
       install_requires=['pycurl', 'PersistentQueue', 'daemon', 'simplejson'],
+
+      setup_requires=['coverage', 'nose'],
+
       entry_points="""
       # -*- Entry points: -*-
       """,
