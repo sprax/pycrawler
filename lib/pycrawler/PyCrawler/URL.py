@@ -125,6 +125,14 @@ def get_parts(url):
     ('http', 'www.python.org', '', '/')
     >>> get_parts('http://www.python.org:8080')
     ('http', 'www.python.org', ':8080', '/')
+    >>> get_parts('http://www.python.org:notanumber')
+    Traceback (most recent call last):
+        ...
+    BadFormat: Invalid URL: http://www.python.org:notanumber
+
+    # FIXME: this is *very* broken.
+    >>> get_parts('#foo')
+    ('', None, '', '/')
     """
     try:
         o = urlparse(url)
@@ -161,6 +169,21 @@ def is_text(bytes):
 
        (reason string, boolean)
 
+    # doctest can't deal with \0
+    #>>> is_text("Foo bar\0baz")
+    # doctest can't deal with \0
+    #>>> is_text(["This is a sentence." * 128 + "\0This null not in the first 1024kB"])
+
+    >>> is_text('')
+    ('empty string', True)
+    >>> is_text("A")
+    ('', True)
+    >>> is_text("This is a sentence.")
+    ('', True)
+    >>> is_text('This        has           a           lot              of            space.')
+    ('', True)
+    >>> is_text(u'\N{HEAVY BLACK HEART}'.encode('utf8'))
+    ('too much is not text', False)
     """
     if not bytes:
         return ("empty string", True)
@@ -197,6 +220,8 @@ def get_links(hostkey, relurl, text, depth=0, accepted_schemes=ACCEPTED_SCHEMES)
     ([], [('', None, '', 'www.python.org/foo')])
     >>> get_links('www.python.org', '/docs', 'This is a link! <a href="ssh://myhost">My link</a>')
     (["rejecting scheme: 'ssh'"], [])
+    >>> get_links('www.python.org', '/docs', 'This is a link! <a href="http://myhost:badport">My link</a>')
+    (['Invalid URL: http://myhost:badport'], [])
     """
     links = []
     errors = []
