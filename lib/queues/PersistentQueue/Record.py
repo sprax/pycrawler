@@ -82,6 +82,17 @@ def define_record(typename, field_names):
 
     This is pased on /usr/lib/python2.6/collections.py implementation
     of namedtuple() factory, so this is Python Licensed:
+
+    >>> c=define_record('Point2d', ['x', 'y'])
+    >>> c.__name__
+    'Point2d'
+    >>> o=c(x=1, y=2)
+    >>> o
+    Point2d(x=1, y=2)
+    >>> o.x
+    1
+    >>> o.y
+    2
     """
     # Parse and validate the field names.  Validation serves two purposes,
     # generating informative error messages and preventing template injection attacks.
