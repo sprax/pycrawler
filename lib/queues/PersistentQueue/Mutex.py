@@ -8,6 +8,7 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 import os
+import errno
 import fcntl
 import traceback
 
@@ -54,7 +55,7 @@ class Mutex(object):
                     os.makedirs(parent)
                 except OSError, exc:
                     # okay if other process has just created it
-                    if exc.errno == 17:
+                    if exc.errno == errno.EEXIST:
                         pass
                     else:
                         raise
