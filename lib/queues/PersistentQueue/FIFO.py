@@ -203,8 +203,10 @@ class FIFO(BaseFIFO):
                 os.makedirs(self._data_path)
             except OSError, exc:
                 # okay if someone else just made it:
-                if exc.errno == 17: pass
-                else: raise
+                if exc.errno == errno.EEXIST:
+                    pass
+                else:
+                    raise
         # acquire mutex to protect on-disk state files
         self._mutex = Mutex(os.path.join(data_path, "lock_file"))
         acquired = self._mutex.acquire(block=False)
