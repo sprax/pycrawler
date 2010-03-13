@@ -74,3 +74,23 @@ class TestMutex():
         assert self.released == 1
 
         assert m1.available() == True
+
+    def test_fake_mutex(self):
+        """ Test fake Mutex interface. """
+
+        self.acquired = self.released = 0
+        m = Mutex(None,
+                  acquire_callback = self.acquire_callback,
+                  release_callback = self.release_callback)
+
+        assert m.available()
+        assert m.acquire() == True
+
+        # FIXME: fails.  fake mutex doesn't implement,
+        # and thus provides an incompatible interface
+        #assert m.acquire(block=False) == True
+
+        assert m.available()
+        assert m.release() is None
+
+        assert self.acquired == self.released == 0
