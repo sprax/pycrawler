@@ -43,28 +43,6 @@ class MyND2(PersistentQueue.nameddict):
     # do not accumulate
     accumulator = None
 
-def test_mutex():
-    print "Testing mutex..."
-    sema1 = PersistentQueue.Mutex("foo/test_mutex")
-    sema1.acquire()
-    sema2 = PersistentQueue.Mutex("foo/test_mutex")
-    print "\tattempting to get lock without blocking"
-    acquired = sema2.acquire(block=False)
-    assert acquired == False
-    print "\tsuccess"
-    sema1.release()
-    print "\tattempting to acquire"
-    acquired = sema2.acquire()
-    assert acquired == True
-    print "\tsuccess"
-    sema2.release()
-    sema1.acquire()
-    sema2.release()
-    sema1.release()
-    os.remove("foo/test_mutex")
-    os.rmdir("foo")
-    print "\tpassed!"
-
 def speed_test(data_path, ELEMENTS=50000, p=None, compress=True):
     """run speed tests and average speeds of put and get"""
     if p is None:
@@ -434,7 +412,6 @@ def main():
     parser.add_option("-n", "--num", dest="num", default=1000, type=int, help="num items to put/get in tests")
     parser.add_option("--dir", dest="dir", default="data_test_dir", help="path for dir to use in tests")
     parser.add_option("--validate", dest="validate", default=False, action="store_true", help="validate an existing PersistentQueue")
-    parser.add_option("--mutex", dest="mutex", default=False, action="store_true", help="run test of file-based Mutex")
     parser.add_option("--basic", dest="basic", default=False, action="store_true", help="run basic test")
     parser.add_option("--speed", dest="speed", default=False, action="store_true", help="run speed test")
     parser.add_option("--process", dest="process", default=False, action="store_true", help="run test of running PersistentQueue inside a multiprocessing.Process")
@@ -451,9 +428,7 @@ def main():
         sys.exit()
 
     rmdir(options.dir)
-    if options.mutex:
-        test_mutex()
-    elif options.basic:
+    if options.basic:
         basic_test(options.dir, options.num)
     elif options.speed:
         speed_test(options.dir, options.num)
@@ -478,7 +453,6 @@ def main():
     elif options.exceptions:
         exceptions_tests()
     else:
-        test_mutex()
         basic_test(options.dir, options.num)
         rmdir(options.dir)        
         speed_test(options.dir, options.num)
