@@ -64,6 +64,26 @@ class Mutex(object):
             self.acquire(False)
             self.release()
 
+    def __acquire(self, block=True):
+        """
+        Internal function to acquire a lock, and return the
+        locked file handle.
+        """
+
+        fd = os.open(self._lock_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        fh = os.fdopen(fd, "a")
+        lock_flags = fcntl.LOCK_EX
+        if not block:
+            lock_flags |= fcntl.LOCK_NB
+        try:
+            fcntl.flock(fd, lock_flags)
+        except IOError, e:
+            if e.errno in (errno.EACCES, errno.EAGAIN):
+                fh.close()
+                return None
+            raise
+        return fh
+
     def acquire(self, block=True):
         """
         Open the file handle, and get an exclusive lock.  Returns True
@@ -72,20 +92,20 @@ class Mutex(object):
         If 'block' is False, then return False if the lock was not
         acquired.  Otherwise, returns True.
         """
-        fd = os.open(self._lock_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        self._fh = os.fdopen(fd, "a")
-        lock_flags = fcntl.LOCK_EX
-        if not block:
-            lock_flags |= fcntl.LOCK_NB
-        try:
-            fcntl.flock(self._fh, lock_flags)
-        except IOError, e:
-            if e[0] == 11:
-                return False
-            raise
+        fh = self.__acquire(block=block)
+        if not fh:
+            return False
+        self._fh = fh
         if self._acquire_callback is not None:
             self._acquire_callback()
         return True
+
+    def __release(self, fh):
+        """
+        Internal function to release a lock given a file handle to it.
+        """
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        fh.close()
 
     def release(self):
         """
@@ -95,15 +115,18 @@ class Mutex(object):
         if self._fh is not None:
             if self._release_callback is not None:
                 self._release_callback()
-            fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
-            self._fh.close()
+            self.__release(self._fh)
             self._fh = None
 
     def available(self):
         "returns bool whether mutex is not locked"
-        acquired = self.acquire(block=False)
-        if acquired:
-            self.release()
+
+        # We use a different file handle here so that a process
+        # can call available without losing its own locks.
+        acquired_fh = self.__acquire(block=False)
+        if acquired_fh:
+            self.__release(acquired_fh)
             return True
         else:
             return False
+
