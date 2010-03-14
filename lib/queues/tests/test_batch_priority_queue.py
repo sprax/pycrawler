@@ -33,7 +33,7 @@ def rmdir(dir):
         except Exception, exc:
             print "Did not rmtree the dir. " + str(exc)
 
-if __name__ = '__main__':
+if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option("-n", "--num", type=int, default=5, dest="num")
     parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
