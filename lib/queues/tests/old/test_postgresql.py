@@ -9,13 +9,14 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
-import psycopg2
 from time import time
 from hashlib import md5
 from random import random
 from optparse import OptionParser
 
 if __name__ == '__main__':
+    import psycopg2
+
     parser = OptionParser()
     parser.add_option("-n", "--num", type=int, default=5, dest="num")
     (options, args) = parser.parse_args()
