@@ -31,7 +31,7 @@ def test_fifo(num=5, cache_size=5):
     test_dir = "test_dir"
     rmdir(test_dir)
 
-    fifo = PersistentQueue.FIFO.FIFO(test_dir, cache_size=cache_size)
+    fifo = PersistentQueue.FIFO(test_dir, cache_size=cache_size)
 
     start = time()
     for i in xrange(num):
@@ -40,7 +40,7 @@ def test_fifo(num=5, cache_size=5):
     elapsed_put = time() - start
 
     start = time()
-    fifo = PersistentQueue.FIFO.FIFO(test_dir, cache_size=10)
+    fifo = PersistentQueue.FIFO(test_dir, cache_size=10)
     for i in xrange(num):
         val = fifo.get()
         assert str(i) == val, "\n\nval: %s != %s" % (val, str(i))
