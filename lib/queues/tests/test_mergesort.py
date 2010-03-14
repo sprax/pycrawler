@@ -65,84 +65,85 @@ def sort(dir, merge=False):
                                 (retcode, sort.stderr.read()))
         yield line
 
-parser = OptionParser()
-parser.add_option("-n", "--num", type=int, default=5000, dest="num")
-parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
-(options, args) = parser.parse_args()
+if __name__ == '__main__':
+    parser = OptionParser()
+    parser.add_option("-n", "--num", type=int, default=5000, dest="num")
+    parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
+    (options, args) = parser.parse_args()
 
-num = options.num
-assert num >= 1000, "must have larger num"
+    num = options.num
+    assert num >= 1000, "must have larger num"
 
-vals = blist.blist(random.sample(xrange(num * 1000), num))
-random.shuffle(vals)
+    vals = blist.blist(random.sample(xrange(num * 1000), num))
+    random.shuffle(vals)
 
-q_path = "test_dir"
-o_path = "test_dir2"
-rmdir(q_path)
-rmdir(o_path)
-start = time()
-q = PersistentQueue.FIFO(q_path, cache_size=int(num/100))
-for i in vals:
-    q.put(str(i))
-q.close()
+    q_path = "test_dir"
+    o_path = "test_dir2"
+    rmdir(q_path)
+    rmdir(o_path)
+    start = time()
+    q = PersistentQueue.FIFO(q_path, cache_size=int(num/100))
+    for i in vals:
+        q.put(str(i))
+    q.close()
 
-o = PersistentQueue.FIFO(o_path)
-for line in sort(os.path.join(q_path, "data")):
-    #print line
-    o.put(line)
-elapsed_sort = time() - start
+    o = PersistentQueue.FIFO(o_path)
+    for line in sort(os.path.join(q_path, "data")):
+        #print line
+        o.put(line)
+    elapsed_sort = time() - start
 
-count = 0
-assert len(vals) == len(o)
-vals.sort()
-for val in vals:
-    ans = o.get()
-    if len(ans) == 0:
-        print "\ncount: %s, val: %s, but empty ans: %s" % (count, val, repr(ans))
+    count = 0
+    assert len(vals) == len(o)
+    vals.sort()
+    for val in vals:
         ans = o.get()
-    ans = int(ans)
-    assert val == ans, "\nval: %s\nans: %s\ncount: %s" % (val, ans, count)
-    count += 1
-assert len(o) == 0
-o.close()
-rmdir(q_path)
-rmdir(o_path)
+        if len(ans) == 0:
+            print "\ncount: %s, val: %s, but empty ans: %s" % (count, val, repr(ans))
+        ans = o.get()
+        ans = int(ans)
+        assert val == ans, "\nval: %s\nans: %s\ncount: %s" % (val, ans, count)
+        count += 1
+    assert len(o) == 0
+    o.close()
+    rmdir(q_path)
+    rmdir(o_path)
 
-print "%d records sorted in %.3f seconds --> %.1f records/second" % (len(vals), elapsed_sort, len(vals) / elapsed_sort)
+    print "%d records sorted in %.3f seconds --> %.1f records/second" % (len(vals), elapsed_sort, len(vals) / elapsed_sort)
 
 
-q_path = "test_dir"
-o_path = "test_dir2"
-rmdir(q_path)
-rmdir(o_path)
-temp = blist.blist()
-random.shuffle(vals)
-start = time()
-q = PersistentQueue.FIFO(q_path, cache_size=int(num/100))
-for i in vals:
-    temp.append(i)
-    if len(temp) == int(num/100):
-        temp.sort()
-        map(lambda x: q.put(str(x)), temp)
-        temp = blist.blist()
-q.close()
+    q_path = "test_dir"
+    o_path = "test_dir2"
+    rmdir(q_path)
+    rmdir(o_path)
+    temp = blist.blist()
+    random.shuffle(vals)
+    start = time()
+    q = PersistentQueue.FIFO(q_path, cache_size=int(num/100))
+    for i in vals:
+        temp.append(i)
+        if len(temp) == int(num/100):
+            temp.sort()
+            map(lambda x: q.put(str(x)), temp)
+            temp = blist.blist()
+    q.close()
 
-o = PersistentQueue.FIFO(o_path)
-for line in sort(os.path.join(q_path, "data"), merge=True):
-    o.put(line)
-elapsed_merge = time() - start
+    o = PersistentQueue.FIFO(o_path)
+    for line in sort(os.path.join(q_path, "data"), merge=True):
+        o.put(line)
+    elapsed_merge = time() - start
 
-count = 0
-vals.sort()
-assert len(vals) == len(o)
-for val in vals:
-    ans = int(o.get())
-    assert val == ans, "\nval: %s\nans: %s\ncount: %s" % (val, ans, count)
-    count += 1
-assert len(o) == 0
-o.close()
-rmdir(q_path)
-rmdir(o_path)
+    count = 0
+    vals.sort()
+    assert len(vals) == len(o)
+    for val in vals:
+        ans = int(o.get())
+        assert val == ans, "\nval: %s\nans: %s\ncount: %s" % (val, ans, count)
+        count += 1
+    assert len(o) == 0
+    o.close()
+    rmdir(q_path)
+    rmdir(o_path)
 
-print "%d records sorted and then merged in %.3f seconds --> %.1f records/second" % (len(vals), elapsed_merge, len(vals) / elapsed_merge)
+    print "%d records sorted and then merged in %.3f seconds --> %.1f records/second" % (len(vals), elapsed_merge, len(vals) / elapsed_merge)
 

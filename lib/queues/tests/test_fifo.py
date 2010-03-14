@@ -51,10 +51,10 @@ def test_fifo(num, cache_size):
     rmdir(test_dir)
     print "%.1f put/sec, %.1f get/sec" % (num / elapsed_put, num / elapsed_get)
     
+if __name__ == '__main__':
+    parser = OptionParser()
+    parser.add_option("-n", "--num", type=int, default=5, dest="num")
+    parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
+    (options, args) = parser.parse_args()
 
-parser = OptionParser()
-parser.add_option("-n", "--num", type=int, default=5, dest="num")
-parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
-(options, args) = parser.parse_args()
-
-test_fifo(options.num, options.cache_size)
+    test_fifo(options.num, options.cache_size)
