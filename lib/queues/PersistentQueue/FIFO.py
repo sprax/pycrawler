@@ -21,7 +21,7 @@ class BaseFIFO(object):
     are must already be serialized into strings, which are appended to
     the flat files as new lines.
     """
-    def __init__(self, data_path, cache_size=2**16):
+    def __init__(self, cache_size=2**16):
         """
         Create a FIFO of flat files in data_path/ directory.
 
