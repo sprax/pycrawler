@@ -11,7 +11,7 @@ import os
 import sys
 import traceback
 
-from PyCrawler import AnalyzerChain, Analyzer, GetLinks, LogInfo
+from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo
 
 import multiprocessing
 from time import sleep, time

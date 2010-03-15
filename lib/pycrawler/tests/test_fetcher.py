@@ -17,7 +17,9 @@ import time
 from optparse import OptionParser
 from PersistentQueue import RecordFIFO, RecordFactory, JSON, b64, define_record
 
-from PyCrawler import Fetcher, CrawlStateManager
+from PyCrawler import Fetcher
+from PyCrawler.crawl_state_manager import HostRecord, HostFetchRecord, HostRecord_template, \
+     FetchRecord_defaults
 
 class TestFetcher:
 
@@ -41,21 +43,17 @@ class TestFetcher:
                 raise
 
     def test_fetcher(self, num=5, timeout=20):
-        import types
-        # The following issue sometimes happens with nose, after running doctests!
-        assert not isinstance(Fetcher, types.ModuleType)
-
         # make factories for creating surrogate HostRecord and RawFetchRecords for testing:
         host_factory = RecordFactory(
-            CrawlStateManager.HostRecord, 
-            CrawlStateManager.HostRecord_template,
+            HostRecord, 
+            HostRecord_template,
             defaults = {"next": 0, "start": 0, "bytes": 0, "hits": 0, "data": {"succeeded": 0, "failed": 0, "links": []}})
 
         HostFetchRecord_template = (int, int, int, int, str, str, str, b64, JSON)
         fetch_rec_factory = RecordFactory(
-            CrawlStateManager.HostFetchRecord, 
+            HostFetchRecord, 
             HostFetchRecord_template,
-            defaults = CrawlStateManager.FetchRecord_defaults)
+            defaults = FetchRecord_defaults)
 
         # make temp copy of url_parts fifo and make records for all items in the FIFO
         shutil.copytree(self.url_parts_dir,
@@ -94,7 +92,7 @@ class TestFetcher:
             except Queue.Empty:
                 time.sleep(1)
                 continue
-            if isinstance(rec, CrawlStateManager.HostFetchRecord):
+            if isinstance(rec, HostFetchRecord):
                 count += 1
             print "Done with %d of %d" % (count, num)
             if count == num:

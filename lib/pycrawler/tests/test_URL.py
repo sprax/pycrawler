@@ -12,7 +12,7 @@ import sys
 import time
 import traceback
 
-from PyCrawler import URL
+from PyCrawler import url as URL
 
 def tests():
     "tests for get_links"
