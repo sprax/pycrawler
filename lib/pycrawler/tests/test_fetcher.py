@@ -59,7 +59,7 @@ class TestFetcher:
         shutil.copytree(self.url_parts_dir,
                         self.temp_dir)
         UrlParts = define_record("UrlParts", "scheme hostname port relurl")
-        f = RecordFIFO(UrlParts, (str, str, str, b64), "url_parts_temp")
+        f = RecordFIFO(UrlParts, (str, str, str, b64), self.temp_dir)
         hosts = {}
         count = 0
         for u in f:
@@ -69,13 +69,19 @@ class TestFetcher:
                 hosts[u.hostname] = host_factory.create(**{"hostname": u.hostname})
             hosts[u.hostname].data["links"].append(
                 fetch_rec_factory.create(**u.__getstate__()))
+            fetchrec = hosts[u.hostname].data["links"][-1]
+            print 'Enqueued http://%s%s' % (fetchrec.hostname, fetchrec.relurl)
+        f.close()
+        del f
 
         time.sleep(5)
 
-        hostQ = multiprocessing.Queue()
+        hostQ = multiprocessing.Queue(len(hosts.keys()))
         outQ = multiprocessing.Queue()
         for hostname in hosts:
             hostQ.put(hosts[hostname])
+
+        print '%d (of %s) items enqueued.' % (len(hosts.keys()), num)
 
         fetcher = Fetcher(hostQ=hostQ, outQ=outQ, _debug=True)
         fetcher.start()
@@ -84,7 +90,7 @@ class TestFetcher:
 
         count = 0
 
-        failed = False
+        failures = []
 
         while fetcher.is_alive() and time.time() < t1 + timeout:
             try:
@@ -99,11 +105,8 @@ class TestFetcher:
                 break
         else:
             if fetcher.is_alive():
-                print 'Timed out after %d seconds!' % timeout
-            else:
-                assert count != num
-            print 'Only got %d of %d records!' % (count, num)
-            failed = True
+                failures.append('Timed out after %d seconds!' % timeout)
+            failures.append('Only got %d of %d records!' % (count, num))
 
         print "done"
         fetcher.stop()
@@ -114,8 +117,8 @@ class TestFetcher:
             except Queue.Empty:
                 time.sleep(0.1)
 
-        print "exiting"
-        sys.exit(failed)
+        if failures:
+            sys.exit(failures)
 
 def main(argv):
     parser = OptionParser()
