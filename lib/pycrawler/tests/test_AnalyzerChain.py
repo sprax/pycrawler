@@ -30,12 +30,15 @@ class BrokenAnalyzer(Analyzer):
     def cleanup(self):
         syslog("Cleanup.")
 
-def test(with_broken_analyzer=False):
+def test_broken_analyzer():
+    test_analyzer(with_broken_analyzer=True)
+
+def test_analyzer(with_broken_analyzer=False):
 
     openlog("AnalyzerChainTest", LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
 
     syslog(LOG_DEBUG, "making an AnalyzerChain")
-    ac = AnalyzerChain.AnalyzerChain(debug=True)
+    ac = AnalyzerChain(debug=True)
 
     def stop(a=None, b=None):
         syslog(LOG_DEBUG, "received %s" % a)
@@ -51,15 +54,14 @@ def test(with_broken_analyzer=False):
         syslog(LOG_DEBUG, "adding a broken Analyzer")
         ac.append(BrokenAnalyzer, 3)
     syslog(LOG_DEBUG, "adding Analyzers")
-    ac.append(AnalyzerChain.GetLinks, 10)
-    ac.append(AnalyzerChain.LogInfo, 1)
+    ac.append(GetLinks, 10)
+    ac.append(LogInfo, 1)
 
     syslog(LOG_DEBUG, "Making FetchInfo")
     hostkey = "http://www.cnn.com"
     text = "This is a test document." #urllib.urlopen(hostkey).read()
-    u = AnalyzerChain.FetchInfo(attrs={
-            "hostkey": hostkey, 
-            "relurl":  "/", 
+    u = FetchInfo.create(**{
+            "url": hostkey + "/",
             "depth":   0, 
             "last_modified": 0,
             "raw_data": text
@@ -76,7 +78,8 @@ def test(with_broken_analyzer=False):
     while True:
         actives = multiprocessing.active_children()
         syslog(LOG_DEBUG,  "waiting for children: %s" % actives)
-        if len(actives) == 0: break
+        if len(actives) == 0:
+            break
         sleep(1)
 
     syslog(LOG_DEBUG, "Test finished")
