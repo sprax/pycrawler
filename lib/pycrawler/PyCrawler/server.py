@@ -32,7 +32,8 @@ PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"
 
 class FetchServer(Process):
-    class ManagerClass(multiprocessing.managers.BaseManager): pass
+    class ManagerClass(multiprocessing.managers.BaseManager):
+        pass
 
     def __init__(self, go=None, address=("", PORT), authkey=AUTHKEY, debug=False):
         """
@@ -176,7 +177,8 @@ class FetchClient:
     TODO: can this be a subclass of BaseManager?  Can this be cleaner?
     """
     def __init__(self, address=("", PORT), authkey=AUTHKEY):
-        class LocalFetchManager(multiprocessing.managers.BaseManager): pass
+        class LocalFetchManager(multiprocessing.managers.BaseManager):
+            pass
         LocalFetchManager.register("put")
         LocalFetchManager.register("stop")
         LocalFetchManager.register("set_config")

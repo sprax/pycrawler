@@ -278,7 +278,8 @@ def get_links(hostkey, relurl, text, depth=0, accepted_schemes=ACCEPTED_SCHEMES)
                     continue
                 else:
                     new_path.append(step)
-            if path_error: continue
+            if path_error:
+                continue
             relurl = '/' + '/'.join(new_path)
             if url[-1] == "/": # is a dir
                 relurl += '/'

@@ -38,7 +38,8 @@ class Analyzable(Record):
     def __init__(self, *args, **kwargs):
         Record.__init__(self, *args, **kwargs)
 
-class InvalidAnalyzer(Exception): pass
+class InvalidAnalyzer(Exception):
+    pass
 
 class FetchInfo(Analyzable):
     """
@@ -377,10 +378,12 @@ class SpeedDiagnostics(Analyzer):
             return
         median = self.deltas[int(round(len(self.deltas)/2.))][0]
         mean = 0.
-        for d in self.deltas: mean += d[0]
+        for d in self.deltas:
+            mean += d[0]
         mean /= float(len(self.deltas))
         success = 0
-        for d in self.deltas: success += 1
+        for d in self.deltas:
+            success += 1
         out += "%.4f mean, %.4f median, %.2f%% succeeded\n" % \
             (mean, median, 100. * success/float(len(self.deltas)))
         begin = 0
@@ -390,7 +393,8 @@ class SpeedDiagnostics(Analyzer):
             end = int(len(self.deltas) * frac)     # index number of the last item in this bin
             t = self.deltas[end-1][0]              # slowest time in this bin
             num_per_frac = len(self.deltas[begin:end])
-            if num_per_frac == 0: num_per_frac = 1
+            if num_per_frac == 0:
+                num_per_frac = 1
             rate = t > 0 and num_per_frac / t or 0 # slowest rate in this bin
             success = 0
             failure = 0
