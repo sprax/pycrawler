@@ -41,22 +41,26 @@ class InvalidAnalyzer(Exception): pass
 
 class FetchInfo(Analyzable):
     """
-    >>> 
+    >>> FetchInfo.create(url='http://foo')
+    FetchInfo(raw_data=None, depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo', relurl='/', last_modified=None)
+    >>> FetchInfo.create(url='http://foo:7')
+    FetchInfo(raw_data=None, depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo:7', relurl='/', last_modified=None)
     """
-    __slots__ = ('url', 'raw_data', 'depth', 'start', 'end', 'state', 'links', 'hostkey',
-                 'relurl')
+    __slots__ = ('raw_data', 'depth', 'start', 'end', 'state', 'links',
+                 'hostkey', 'relurl', 'last_modified')
 
     @classmethod
     def create(self, url=None, raw_data=None, depth=None, start=None, end=None,
-                 state=None, links=[]):
+               state=None, last_modified=None, links=[]):
         scheme, hostname, port, relurl = URL.get_parts(url)
         hostkey = '%s://%s' % (scheme, hostname)
         if port:
-            hostkey = hostkey + ':%s' % port
+            assert port[0] == ':'
+            hostkey = hostkey + '%s' % port
 
-        return FetchInfo(url=url, raw_data=raw_data, depth=depth, start=start,
-                         end=end, state=state, links=links,
-                         hostkey=hostkey, relurl=relurl)
+        return FetchInfo(raw_data=raw_data, depth=depth, start=start,
+                         end=end, state=state, last_modified=last_modified,
+                         links=links, hostkey=hostkey, relurl=relurl)
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"
@@ -302,6 +306,14 @@ class Analyzer(Process):
         self.logger.info("Cleanup.")
 
 class GetLinks(Analyzer):
+    """
+    Get links from page.
+
+    >>> x=GetLinks(Queue.Queue(), Queue.Queue())
+    >>> x.analyze("This is a string not a FetchInfo")
+    'This is a string not a FetchInfo'
+    """
+
     name = "GetLinks"
     def analyze(self, yzable):
         """uses URL.get_links to get URLs out of each page
