@@ -175,12 +175,13 @@ the input to an AnalyzerChain.
         self.idlelist = []
         self.start_num_handles = 0
         self.fetches = 0
+        self.msg("Finished init_curl")
 
     def msg(self, step):
         msg = "%s%d/%d/%d (idle/free/total) outQ(%d) %d/%d fetches/FETCHES_TO_LIVE" % (
             step and "%s: " % step or "",
             len(self.idlelist), 
-            self.m and (len(self.m.handles) - len(self.freelist)) or 0,
+            len(self.freelist),
             self.m and len(self.m.handles) or 0,
             self.outQ and self.outQ.qsize() or 0,
             self.fetches, 
@@ -289,7 +290,7 @@ the input to an AnalyzerChain.
                 c.host = None
                 self.freelist.append(c)
                 # if was last conn for this host, then retire
-                if len(host.data["conns"]) == 1:
+                if len(host.data["conns"]) == 0:
                     self.retire(host)
                 host = None
                 continue  # loop again
@@ -324,6 +325,7 @@ the input to an AnalyzerChain.
                     host = self.hostQ.get_nowait()
                 except Queue.Empty:
                     break
+                self.logger.debug("Got host %s, %d links" % (host.hostname, len(host.data["links"])))
                 # use this attr of HostRecord to hold temporary data
                 # using an instance of Empty class:
                 host.data["conns"] = []
