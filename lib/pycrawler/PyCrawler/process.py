@@ -14,7 +14,7 @@ import multiprocessing
 from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
 from syslog import LOG_NOTICE, LOG_DEBUG, syslog
 
-import .._logging
+import _logging
 
 class Process(multiprocessing.Process):
     """
@@ -32,7 +32,7 @@ class Process(multiprocessing.Process):
         If go is not provided, then create a self._go event, which
         self.prepare_process will set.  self.stop() clears self._go.
         """
-        self.logger = Logging.logger
+        self.logger = _logging.logger
 
         if debug is not None:
             self._debug = debug
@@ -45,7 +45,7 @@ class Process(multiprocessing.Process):
         """
         Set the go Event and open the syslog
         """
-        self.logger = Logging.configure_logger()
+        self.logger = _logging.configure_logger()
         
         for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
             signal(sig, SIG_IGN)

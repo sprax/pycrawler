@@ -41,8 +41,8 @@ try:
 except:
     from StringIO  import StringIO
 
-from ..process import Process, multi_syslog
-from ..url import fullurl, get_parts
+from process import Process, multi_syslog
+from url import fullurl, get_parts
 
 # because we use setopt(pycurl.NOSIGNAL, 1)
 signal(SIGPIPE, SIG_IGN)

@@ -9,7 +9,6 @@ __license__ = "MIT License"
 __version__ = "0.1"
 import os
 import sys
-import URL
 import copy
 import gzip
 import Queue
@@ -19,10 +18,12 @@ import traceback
 import multiprocessing
 import cPickle as pickle
 from time import time, sleep
-from Process import Process, multi_syslog
 from hashlib import md5
-from AnalyzerChain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, FetchInfo
 from PersistentQueue import define_record, FIFO, RecordFIFO, BatchPriorityQueue, b64, Static, JSON
+
+from analyzer_chain import Analyzer, AnalyzerChain, GetLinks, SpeedDiagnostics, FetchInfo
+from process import Process, multi_syslog
+import url
 
 HostRecord = define_record("HostRecord", "next start bytes hits hostname data")
 HostRecord_template = (int, int, int, int, str, JSON)

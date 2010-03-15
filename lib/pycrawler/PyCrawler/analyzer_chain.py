@@ -9,7 +9,6 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
-import URL
 import Queue
 import logging
 import traceback
@@ -18,7 +17,8 @@ from time import time, sleep
 from random import random
 from PersistentQueue import Record
 
-from ..process import Process, multi_syslog
+from process import Process, multi_syslog
+from url import get_links, get_parts
 
 class Analyzable(Record):
     """
@@ -53,7 +53,7 @@ class FetchInfo(Analyzable):
     @classmethod
     def create(self, url=None, raw_data=None, depth=None, start=None, end=None,
                state=None, last_modified=None, links=[]):
-        scheme, hostname, port, relurl = URL.get_parts(url)
+        scheme, hostname, port, relurl = get_parts(url)
         hostkey = '%s://%s' % (scheme, hostname)
         if port:
             assert port[0] == ':'
@@ -321,7 +321,7 @@ class GetLinks(Analyzer):
         and pass it on as an attr of the yzable"""
         if isinstance(yzable, FetchInfo):
             #syslog(yzable.raw_data)
-            errors, host_and_relurls_list = URL.get_links(
+            errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
                 yzable.raw_data, 
