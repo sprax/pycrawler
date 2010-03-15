@@ -8,7 +8,8 @@ class Foo:
             cat = self.cat
         return Bar
 
-foo = Foo()
-Bar = foo.make_bar()
-bar = Bar()
-print bar.cat
+if __name__ == '__main__':
+    foo = Foo()
+    Bar = foo.make_bar()
+    bar = Bar()
+    print bar.cat
