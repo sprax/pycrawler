@@ -74,8 +74,6 @@ class TestFetcher:
         f.close()
         del f
 
-        time.sleep(5)
-
         hostQ = multiprocessing.Queue(len(hosts.keys()))
         outQ = multiprocessing.Queue()
         for hostname in hosts:
