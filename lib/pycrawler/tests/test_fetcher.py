@@ -10,6 +10,7 @@ __maintainer__ = "John R. Frank"
 import os
 import sys
 import Queue
+import errno
 import shutil
 import multiprocessing
 import time
@@ -32,9 +33,18 @@ class TestFetcher:
         self.url_parts_dir = os.path.join(test_dir, 'url_parts')
 
     def tearDown(self):
-        shutil.rmtree(self.temp_dir)
+        try:
+            shutil.rmtree(self.temp_dir)
+        except EnvironmentError, e:
+            # It's okay if the file doesn't exist.
+            if e.errno != errno.ENOENT:
+                raise
 
-    def test_fetcher(self, num=5):
+    def test_fetcher(self, num=5, timeout=20):
+        import types
+        # The following issue sometimes happens with nose, after running doctests!
+        assert not isinstance(Fetcher, types.ModuleType)
+
         # make factories for creating surrogate HostRecord and RawFetchRecords for testing:
         host_factory = RecordFactory(
             CrawlStateManager.HostRecord, 
@@ -72,8 +82,13 @@ class TestFetcher:
         fetcher = Fetcher(hostQ=hostQ, outQ=outQ, _debug=True)
         fetcher.start()
 
+        t1 = time.time()
+
         count = 0
-        while fetcher.is_alive():
+
+        failed = False
+
+        while fetcher.is_alive() and time.time() < t1 + timeout:
             try:
                 rec = outQ.get_nowait()
             except Queue.Empty:
@@ -84,6 +99,13 @@ class TestFetcher:
             print "Done with %d of %d" % (count, num)
             if count == num:
                 break
+        else:
+            if fetcher.is_alive():
+                print 'Timed out after %d seconds!' % timeout
+            else:
+                assert count != num
+            print 'Only got %d of %d records!' % (count, num)
+            failed = True
 
         print "done"
         fetcher.stop()
@@ -95,6 +117,7 @@ class TestFetcher:
                 time.sleep(0.1)
 
         print "exiting"
+        sys.exit(failed)
 
 def main(argv):
     parser = OptionParser()
