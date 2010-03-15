@@ -18,7 +18,8 @@ __version__ = "0.1"
 import URL
 from Server import FetchServer, FetchClient, PORT, AUTHKEY
 from Fetcher import Fetcher
-from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, SpeedDiagnostics
+from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, \
+    SpeedDiagnostics, FetchInfo
 from CrawlStateManager import HostRecord, RawFetchRecord
 
 # import PyCrawler logger into package namespace.
