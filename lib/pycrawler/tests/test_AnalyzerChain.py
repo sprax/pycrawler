@@ -11,13 +11,14 @@ import os
 import sys
 import traceback
 
-from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo
+from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo, analyzer_chain
 
 import multiprocessing
 from time import sleep, time
 from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
 
+from nose.tools import raises
 
 class BrokenAnalyzer(Analyzer):
     name = "BrokenAnalyzer"
@@ -30,11 +31,32 @@ class BrokenAnalyzer(Analyzer):
     def cleanup(self):
         syslog("Cleanup.")
 
+#def test_broken_yzable_fini():
+#    """
+#    Test that analyzing an analyzable with a broken .__fini__
+#    does the right thing.
+#    """
+#    # FIXME: implement test
+#    pass
+
+@raises(analyzer_chain.InvalidAnalyzer)
+def test_non_analyzer():
+    """
+    Verify that appending a non-analyzer to an analyzer chain produces
+    the proper exception.
+    """
+    ac = AnalyzerChain(debug=True)
+    ac.append(None, 1)
+
 def test_broken_analyzer():
+    """
+    Verify that an analyzer whose analyze() method raises an exception
+    fails as expetced.
+    """
     test_analyzer(with_broken_analyzer=True)
 
 def test_analyzer(with_broken_analyzer=False):
-
+    """ Test that some basic analyzing works. """
     openlog("AnalyzerChainTest", LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
 
     syslog(LOG_DEBUG, "making an AnalyzerChain")
