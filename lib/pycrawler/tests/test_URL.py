@@ -12,7 +12,6 @@ import sys
 import time
 import traceback
 
-sys.path.insert(0, os.getcwd())
 from PyCrawler import URL
 
 def tests():
