@@ -138,6 +138,10 @@ class FetchServer(Process):
                 self.logger.info("Waiting for: " + str(multiprocessing.active_children()))
                 sleep(1)
             self.logger.info("Exiting FetchServer.")
+        try:
+            self.cleanup_process()
+        except Exception, exc:
+            multi_syslog(exc, logger=self.logger.warning)
 
     def valid_new_config(self):
         """returns bool indicating whether 'config' is valid, i.e. has

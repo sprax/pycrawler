@@ -41,6 +41,20 @@ class Process(multiprocessing.Process):
         multiprocessing.Process.__init__(self, name=self.name)
         self._go = go or multiprocessing.Event()
 
+    def cleanup_process(self):
+        """
+        Clean up anything we left behind.
+        """
+        try:
+            # save coverage data, as multiprocessing calls os._exit()
+            import coverage
+            # peek under the abstraction barrier to see if we're being coverage-tested
+            if coverage.collector.Collector._collectors:
+                coverage.stop()
+                coverage._the_coverage.save()
+        except ImportError, e:
+            pass
+
     def prepare_process(self):
         """
         Set the go Event and open the syslog

@@ -206,6 +206,10 @@ class AnalyzerChain(Process):
             self.logger.debug("stopped all Analyzers")
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
+        try:
+            self.cleanup_process()
+        except Exception, exc:
+            multi_syslog(exc, logger=self.logger.warning)
 
     def list_analyzers(self):
         """
@@ -275,6 +279,11 @@ class Analyzer(Process):
                                                                     yzable))
 
             self.cleanup()
+        except Exception, exc:
+            multi_syslog(exc, logger=self.logger.warning)
+
+        try:
+            self.cleanup_process()
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
 

@@ -199,6 +199,10 @@ the input to an AnalyzerChain.
             self.main()
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
+        try:
+            self._coverage()
+        except Exception, exc:
+            self.cleanup_process()
 
     def _process_errors(self, err_list, finished_list):
         """ Save error information for any error URLs,

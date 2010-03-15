@@ -259,6 +259,10 @@ with each host's FIFOs, which includes applying RobotFileParser.
             self.packed_hostQ.close()
             self.hostQ.close()
             self.logger.debug("Exiting.")
+        try:
+            self.cleanup_process()
+        except Exception, exc:
+            multi_syslog(exc, logger=self.logger.warning)
 
     def make_next_packed_host(self, max_urls=10000, 
                          max_hosts=100, max_per_host=100):
