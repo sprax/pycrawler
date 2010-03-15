@@ -97,7 +97,8 @@ class AnalyzerChain(Process):
         multiple instances of the same yzer, and each job will pass
         through only one of them (selected at random).
         """
-        if copies == 0: return
+        if copies == 0:
+            return
         if not hasattr(analyzer, "name"):
             raise InvalidAnalyzer("missing name attr")
         self._yzers.append((analyzer, copies))
