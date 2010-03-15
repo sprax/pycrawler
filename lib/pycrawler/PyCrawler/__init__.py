@@ -15,12 +15,12 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
-import URL
-from Server import FetchServer, FetchClient, PORT, AUTHKEY
-from Fetcher import Fetcher
-from AnalyzerChain import AnalyzerChain, Analyzer, GetLinks, LogInfo, \
+from ..url import URL
+from ..server import FetchServer, FetchClient, PORT, AUTHKEY
+from ..fetcher import Fetcher
+from ..analyzer_chain import AnalyzerChain, Analyzer, GetLinks, LogInfo, \
     SpeedDiagnostics, FetchInfo
-from CrawlStateManager import HostRecord, RawFetchRecord
+from ..crawl_state_manager import HostRecord, RawFetchRecord
 
 # import PyCrawler logger into package namespace.
-from Logging import logger
+from .._logging import logger

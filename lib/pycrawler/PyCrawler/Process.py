@@ -9,11 +9,12 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import logging
-import Logging
 import traceback
 import multiprocessing
 from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
 from syslog import LOG_NOTICE, LOG_DEBUG, syslog
+
+import .._logging
 
 class Process(multiprocessing.Process):
     """

@@ -16,8 +16,9 @@ import traceback
 import multiprocessing
 from time import time, sleep
 from random import random
-from Process import Process, multi_syslog
 from PersistentQueue import Record
+
+from ..process import Process, multi_syslog
 
 class Analyzable(Record):
     """

@@ -22,10 +22,11 @@ import multiprocessing
 import multiprocessing.managers
 from copy import copy
 from time import time, sleep
-from Fetcher import Fetcher
-from Process import Process, multi_syslog
-from CrawlStateManager import CrawlStateManager
-from AnalyzerChain import FetchInfo
+
+from ..fetcher import Fetcher
+from ..process import Process, multi_syslog
+from ..crawl_state_manager import CrawlStateManager
+from ..analyzer_chain import FetchInfo
 
 PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"

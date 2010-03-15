@@ -30,18 +30,19 @@ STATE_NAMES = {
     BAD_URL_FORMAT: "BAD_URL_FORMAT",
     SCHEME_REJECTED: "SCHEME_REJECTED",
     }
-import URL
 import copy
 import Queue
 import pycurl
 import logging
 from time import time, sleep
 from signal import signal, SIGPIPE, SIG_IGN
-from Process import Process, multi_syslog
 try:
     from cStringIO import StringIO
 except:
     from StringIO  import StringIO
+
+from ..process import Process, multi_syslog
+from ..url import fullurl, get_parts
 
 # because we use setopt(pycurl.NOSIGNAL, 1)
 signal(SIGPIPE, SIG_IGN)
@@ -209,7 +210,7 @@ the input to an AnalyzerChain.
             c.host.data["failed"] += 1
             finished_list.append(c)
             self.logger.info("Failed: %s (%s) %s" % (errmsg, errno,
-                                                     URL.fullurl(c.fetch_rec)))
+                                                     fullurl(c.fetch_rec)))
 
     def _process_finished_list(self, finished_list):
         for c in finished_list:
@@ -243,7 +244,7 @@ the input to an AnalyzerChain.
                 try:
                     c.fetch_rec.scheme, c.fetch_rec.hostname, \
                                         c.fetch_rec.port, c.fetch_rec.relurl = \
-                                        URL.get_parts(effurl)
+                                        get_parts(effurl)
                 except Exception, exc:
                     multi_syslog(exc, logger=self.logger.warning)
                     # now what?  do something graceful...
@@ -253,7 +254,7 @@ the input to an AnalyzerChain.
             c.host.data["succeeded"] += 1
             finished_list.append(c)
             self.logger.info("%d bytes: %s" % (c.fetch_rec.data["len_fetched_data"],
-                                               URL.fullurl(c.fetch_rec)))
+                                               fullurl(c.fetch_rec)))
 
         self._process_errors(err_list, finished_list)
         self._process_finished_list(finished_list)
@@ -273,7 +274,7 @@ the input to an AnalyzerChain.
                         fetch_rec = c.host.data["links"].pop()
                     except IndexError:
                         break
-                    url = URL.fullurl(fetch_rec)
+                    url = fullurl(fetch_rec)
                     try:
                         c.setopt(pycurl.URL, url)
                     except Exception, exc:
@@ -373,7 +374,7 @@ the input to an AnalyzerChain.
             for c in self.m.handles:
                 if c.fetch_rec is not None:
                     # happens if mid-fetch when _go clears
-                    self.logger.info("cleanup: %s" % URL.fullurl(c.fetch_rec))
+                    self.logger.info("cleanup: %s" % fullurl(c.fetch_rec))
                     c.fetch_rec.data["raw_data"] = ""
                     c.fetch_rec.data["len_fetched_data"] = 0
 
