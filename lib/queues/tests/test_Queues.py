@@ -329,7 +329,7 @@ def triqueue_sort_test(data_path, ELEMENTS=1000):
     print "Sort test passed.  Now closing."
     tq.close()
 
-class MyND3(PersistentQueue.nameddict):
+class MyND3(nameddict):
     _defaults = {"a": None, "b": None}
     _key_ordering = ["a", "b"]
     _val_types = [float, str]
