@@ -20,6 +20,10 @@ from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY,
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
 from optparse import OptionParser
 
+from nose.exc import DeprecatedTest
+
+raise DeprecatedTest("This module refers to PersistentQueue.PersistentQueue, which no longer exists!")
+
 import PersistentQueue
 
 # What is PersistentQueue.nameddict? it has no source.
