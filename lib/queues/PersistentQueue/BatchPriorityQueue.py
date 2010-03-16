@@ -13,11 +13,14 @@ import Queue
 import shutil
 import traceback
 import multiprocessing
-from FIFO import FIFO
+
+
 from time import time, sleep
-from Mutex import Mutex
 from syslog import syslog, openlog, LOG_INFO, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
-from RecordFactory import RecordFactory
+
+from fifo import FIFO
+from mutex import Mutex
+from record_factory import RecordFactory
 
 class BatchPriorityQueue(RecordFactory):
     """

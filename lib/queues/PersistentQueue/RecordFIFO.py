@@ -8,8 +8,8 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
-from FIFO import FIFO
-from RecordFactory import RecordFactory
+from fifo import FIFO
+from record_factory import RecordFactory
 
 class RecordFIFO(RecordFactory, FIFO):
     "Simple persistent FIFO storage wrapped in a RecordFactory"

@@ -17,8 +17,9 @@ import operator
 import simplejson
 import subprocess
 from base64 import urlsafe_b64encode, urlsafe_b64decode
-from Record import Record, define_record
 from collections import namedtuple
+
+from record import Record, define_record
 
 class b64(object): 
     "indicates to dumps/loads to use urlsafe_b64encode/decode"

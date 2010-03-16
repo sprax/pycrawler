@@ -9,9 +9,9 @@ __license__ = "MIT License"
 __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 
-from FIFO import FIFO
-from Mutex import Mutex
-from Record import Record, define_record
-from RecordFIFO import RecordFIFO
-from RecordFactory import RecordFactory, b64, Static, JSON, insort_right
-from BatchPriorityQueue import BatchPriorityQueue
+from fifo import FIFO
+from mutex import Mutex
+from record import Record, define_record
+from record_fifo import RecordFIFO
+from record_factory import RecordFactory, b64, Static, JSON, insort_right
+from batch_priority_queue import BatchPriorityQueue

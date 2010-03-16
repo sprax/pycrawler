@@ -11,7 +11,8 @@ import os
 import errno
 import Queue
 from blist import blist
-from Mutex import Mutex
+
+from mutex import Mutex
 
 class BaseFIFO(object):
     """
