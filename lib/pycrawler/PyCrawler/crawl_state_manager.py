@@ -15,6 +15,7 @@ import Queue
 import logging
 import operator
 import traceback
+import robotparser
 import multiprocessing
 import cPickle as pickle
 from time import time, sleep
