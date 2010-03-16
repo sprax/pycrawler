@@ -20,22 +20,24 @@ from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY,
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
 from optparse import OptionParser
 
-sys.path.insert(0, os.getcwd())
 import PersistentQueue
 
-class MyND0(PersistentQueue.nameddict):
+# What is PersistentQueue.nameddict? it has no source.
+nameddict = dict
+
+class MyND0(nameddict):
     _defaults = {"a": None}
     _key_ordering = ["a"]
     _val_types = [int]
     _sort_key = 0
 
-class MyND1(PersistentQueue.nameddict):
+class MyND1(nameddict):
     _defaults = {"a": None}
     _key_ordering = ["a"]
     _val_types = [float]
     _sort_key = 0
 
-class MyND2(PersistentQueue.nameddict):
+class MyND2(nameddict):
     _defaults = {"a": None}
     _key_ordering = ["a"]
     _val_types = [int]
