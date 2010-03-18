@@ -43,8 +43,6 @@ def tests():
             wrong = True
     if wrong:
         raise Exception("Test failed for reasons above")
-    else:
-        print "Test passed"
 
 if __name__ == "__main__":
     import sys
@@ -59,6 +57,7 @@ if __name__ == "__main__":
     (options, args)= parser.parse_args()
     if options.test:
         tests()
+        print "Test passed"
         sys.exit(0)
 
     errors, links = URL.get_links(options.host, options.relurl, open(options.file).read())
