@@ -20,7 +20,6 @@ from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo, ana
 
 import multiprocessing
 from time import sleep, time
-from syslog import syslog, openlog, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
 
 from nose.tools import raises
@@ -28,13 +27,13 @@ from nose.tools import raises
 class BrokenAnalyzer(Analyzer):
     name = "BrokenAnalyzer"
     def prepare(self):
-        syslog("Prepare.")
+        logging.debug("Prepare.")
     def analyze(self, yzable):
-        syslog("Analyze called with %s" % yzable)
+        logging.debug("Analyze called with %s" % yzable)
         raise Exception("failing intentionally for a test")
         return yzable
     def cleanup(self):
-        syslog("Cleanup.")
+        logging.debug("Cleanup.")
 
 #def test_broken_yzable_fini():
 #    """
@@ -60,10 +59,16 @@ def test_no_analyzers():
         # FIXME: test logs
     finally:
         ac.stop()
-    
-def test_sleeping_analyzer():
+
+def test_sleeping_analyzer_longqueue():
     """
     Test to make sure code that waits for in-flight analyzables works.
+    """
+    test_sleeping_analyzer(qlen=5)
+
+def test_sleeping_analyzer(qlen=1):
+    """
+    Test to make sure queue stall code works.
     """
     timeout = 2
 
@@ -79,7 +84,7 @@ def test_sleeping_analyzer():
     # FIXME: test that this fires off warning log.
 
     # keep queue short to test stalls.
-    ac = AnalyzerChain(debug=True, timewarn=timeout/2.0, timeout=timeout, qlen=1,
+    ac = AnalyzerChain(debug=True, timewarn=timeout/2.0, timeout=timeout, qlen=qlen,
                        queue_wait_sleep=0.01)
 
     # Have various sleep states to test queue stalls.
@@ -112,6 +117,7 @@ def test_sleeping_analyzer():
             sleep(0.1)
 
 def test_speed_diagnostics():
+    """ Ensure that SpeedDiagnostics properly diagnoses speed. """
     ac = AnalyzerChain(debug=True, queue_wait_sleep=0.01)
     ac.append(SpeedDiagnostics, 1)
 
@@ -129,9 +135,11 @@ def test_speed_diagnostics():
             "raw_data": "This is my raw data",
             "end": time() - 10,
             "start": time() - 20,
+            "state": 0,
             }) 
 
         ac.inQ.put(u)
+
         u.end += 10
         u.start -= 10
         u.state = 3 # rejection
@@ -185,26 +193,21 @@ def test_broken_analyzer():
 
 def test_analyzer(with_broken_analyzer=False, timeout=10):
     """ Test that some basic analyzing works. """
-    openlog("AnalyzerChainTest", LOG_NDELAY|LOG_CONS|LOG_PID, LOG_LOCAL0)
-
-    syslog(LOG_DEBUG, "making an AnalyzerChain")
     ac = AnalyzerChain(debug=True, queue_wait_sleep=0.01)
 
     def stop(a=None, b=None):
-        syslog(LOG_DEBUG, "received %s" % a)
+        logging.debug("received %s" % a)
         ac.stop()
 
     for sig in (SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM):
         signal(sig, stop)
 
     if with_broken_analyzer:
-        syslog(LOG_DEBUG, "adding a broken Analyzer")
+        logging.debug("adding a broken Analyzer")
         ac.append(BrokenAnalyzer, 3)
-    syslog(LOG_DEBUG, "adding Analyzers")
     ac.append(GetLinks, 10)
     ac.append(LogInfo, 1)
 
-    syslog(LOG_DEBUG, "Making FetchInfo")
     hostkey = "http://www.cnn.com"
     text = "This is a test document." #urllib.urlopen(hostkey).read()
     u = FetchInfo.create(**{
@@ -214,13 +217,9 @@ def test_analyzer(with_broken_analyzer=False, timeout=10):
             "raw_data": text
             }) 
 
-    syslog(LOG_DEBUG, "calling start")
     ac.start()
     try:
 
-        syslog(LOG_DEBUG, "start returned")
-
-        syslog(LOG_DEBUG, "putting a FetchInfo into the chain")
         ac.inQ.put(u)
 
         for i in range(timeout):
