@@ -114,7 +114,8 @@ class AnalyzerChain(Process):
             self.prepare_process()
             if not self._yzers:
                 self.logger.warning("run called with no analyzers")
-                return
+                return self.cleanup_process()
+
             self.logger.debug("starting yzers with queues between")
 
             queues = [multiprocessing.Queue(self.qlen)]
@@ -384,7 +385,7 @@ class SpeedDiagnostics(Analyzer):
         if not self.deltas: 
             self.logger.info("Apparently saw no URLinfo instances")
             return
-        median = self.deltas[int(round(len(self.deltas)/2.))][0]
+        median = self.deltas[int(len(self.deltas)/2.)][0]
         mean = 0.
         for d in self.deltas:
             mean += d[0]
