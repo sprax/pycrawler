@@ -44,18 +44,52 @@ class BrokenAnalyzer(Analyzer):
 #    # FIXME: implement test
 #    pass
 
+def test_no_analyzers():
+    """
+    Test to ensure that an AnalyzerChain with no analyzers immediately exits.
+    """
+
+    ac = AnalyzerChain(debug=True)
+    ac.start()
+    try:
+        sleep(1)
+        assert ac._go.is_set()
+        # Give a small amount of time for it to finish
+        sleep(1)
+        assert not multiprocessing.active_children()
+        # FIXME: test logs
+    finally:
+        ac.stop()
+    
 def test_sleeping_analyzer():
-    timeout = 1
+    """
+    Test to make sure code that waits for in-flight analyzables works.
+    """
+    timeout = 2
+
     class SleepingAnalyzer(Analyzer):
+        TIMEOUT = timeout+2
         def analyzer(self, yzable):
-            sleep(timeout + 2)
+            sleep(self.TIMEOUT)
             return yzable
+
+    class LongSleepingAnalyzer(SleepingAnalyzer):
+        TIMEOUT = timeout+3
+
     # FIXME: test that this fires off warning log.
-    ac = AnalyzerChain(debug=True, timeout=timeout, queue_wait_sleep=0.01)
+
+    # keep queue short to test stalls.
+    ac = AnalyzerChain(debug=True, timewarn=timeout/2.0, timeout=timeout, qlen=1,
+                       queue_wait_sleep=0.01)
+
+    # Have various sleep states to test queue stalls.
+    ac.append(SleepingAnalyzer, 1)
+    ac.append(LongSleepingAnalyzer, 1)
     ac.append(SleepingAnalyzer, 1)
     ac.start()
 
     try:
+        ac.inQ.put('Analyzable string')
         ac.inQ.put('Analyzable string')
 
         sleep(timeout)
@@ -97,6 +131,10 @@ def test_speed_diagnostics():
             "start": time() - 20,
             }) 
 
+        ac.inQ.put(u)
+        u.end += 10
+        u.start -= 10
+        u.state = 3 # rejection
         ac.inQ.put(u)
 
         for i in range(5):
