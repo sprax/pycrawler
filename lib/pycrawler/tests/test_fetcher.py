@@ -12,6 +12,7 @@ import sys
 import Queue
 import errno
 import shutil
+import logging
 import multiprocessing
 import time
 from optparse import OptionParser
@@ -33,6 +34,9 @@ class TestFetcher:
                                      'url_parts_temp')
         self.temp_dir = os.path.join(pycrawler_dir, 'url_parts_temp')
         self.url_parts_dir = os.path.join(test_dir, 'url_parts')
+
+        # remove url_parts_temp if it exists
+        self.tearDown()
 
     def tearDown(self):
         try:
@@ -70,7 +74,7 @@ class TestFetcher:
             hosts[u.hostname].data["links"].append(
                 fetch_rec_factory.create(**u.__getstate__()))
             fetchrec = hosts[u.hostname].data["links"][-1]
-            print 'Enqueued http://%s%s' % (fetchrec.hostname, fetchrec.relurl)
+            logging.info('Enqueued http://%s%s' % (fetchrec.hostname, fetchrec.relurl))
         f.close()
         del f
 
@@ -79,7 +83,7 @@ class TestFetcher:
         for hostname in hosts:
             hostQ.put(hosts[hostname])
 
-        print '%d (of %s) items enqueued.' % (len(hosts.keys()), num)
+        logging.info('%d (of %s) items enqueued.' % (len(hosts.keys()), num))
 
         fetcher = Fetcher(hostQ=hostQ, outQ=outQ, _debug=True)
         fetcher.start()
@@ -94,11 +98,11 @@ class TestFetcher:
             try:
                 rec = outQ.get_nowait()
             except Queue.Empty:
-                time.sleep(1)
+                time.sleep(0.1)
                 continue
             if isinstance(rec, HostFetchRecord):
                 count += 1
-            print "Done with %d of %d" % (count, num)
+            logging.info("Done with %d of %d" % (count, num))
             if count == num:
                 break
         else:
@@ -106,10 +110,9 @@ class TestFetcher:
                 failures.append('Timed out after %d seconds!' % timeout)
             failures.append('Only got %d of %d records!' % (count, num))
 
-        print "done"
+        logging.info("done")
         fetcher.stop()
         while multiprocessing.active_children():
-            print multiprocessing.active_children()
             try:
                 rec = outQ.get_nowait()
             except Queue.Empty:
