@@ -5,6 +5,7 @@ import robotparser
 import logging
 
 def test_robots():
+    """ Test that we can parse robots.txt, and pickle it. """
     path = os.path.split(os.path.abspath(__file__))[0]
     data = open(os.path.join(path, "robots.txt")).read()
     logging.info("%d bytes data" % len(data))
