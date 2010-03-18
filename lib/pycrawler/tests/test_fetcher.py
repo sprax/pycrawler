@@ -13,6 +13,7 @@ import Queue
 import errno
 import shutil
 import logging
+import tempfile
 import multiprocessing
 import time
 from optparse import OptionParser
@@ -32,7 +33,7 @@ class TestFetcher:
         test_dir = os.path.dirname(os.path.abspath(__file__))
         pycrawler_dir = os.path.join(os.path.split(test_dir)[0],
                                      'url_parts_temp')
-        self.temp_dir = os.path.join(pycrawler_dir, 'url_parts_temp')
+        self.temp_dir = tempfile.mkdtemp(prefix='url_parts.', suffix='.tmp')
         self.url_parts_dir = os.path.join(test_dir, 'url_parts')
 
         # remove url_parts_temp if it exists
