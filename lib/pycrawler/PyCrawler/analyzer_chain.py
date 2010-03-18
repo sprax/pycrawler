@@ -32,11 +32,9 @@ class Analyzable(Record):
     provides a single-line serialization scheme that enables the
     CrawlStateManager to store the two primary types of Analyzables in
     the disk-sort-ready PersistentQueue.
+
     """
     __slots__ = ()
-
-    def __init__(self, *args, **kwargs):
-        Record.__init__(self, *args, **kwargs)
 
 class InvalidAnalyzer(Exception):
     pass
@@ -66,20 +64,23 @@ class FetchInfo(Analyzable):
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"
-    def __init__(self, go=None, debug=None):
+    def __init__(self, go=None, debug=None, qlen=100, timewarn=60,
+                 timeout=None, queue_wait_sleep=0.5):
         """
         Setup inQ and go Event
         """
         Process.__init__(self, go, debug)
-        if debug:
-            self.qlen = 10
-        else:
-            self.qlen = 100
 
+        self.qlen = qlen
         self.inQ  = multiprocessing.Queue(self.qlen)
         self._yzers = []
         self.in_flight = 0
         self.total_processed = 0
+        self.timeout = timeout
+        self.timewarn = timewarn
+        self.queue_wait_sleep = queue_wait_sleep
+
+        assert float(queue_wait_sleep) > 0
 
     def prepare_process(self):
         Process.prepare_process(self)
@@ -121,7 +122,7 @@ class AnalyzerChain(Process):
                 queues.append(multiprocessing.Queue(self.qlen))
                 (yzer, copies) = self._yzers[pos]
                 yzers = [yzer(queues[pos], queues[pos + 1], 
-                              debug=self._debug)
+                              debug=self._debug, queue_wait_sleep=self.queue_wait_sleep)
                          for copy in range(copies)]
                 for yzer in yzers:
                     yzer.start()
@@ -147,7 +148,7 @@ class AnalyzerChain(Process):
 
             last_in_flight = None
             last_in_flight_error_report = 0
-            while self._go.is_set() or self.in_flight > 0:
+            while not self._stop.is_set() or self.in_flight > 0:
                 #syslog(
                 #    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
                 #        % (in_flight, total_processed,
@@ -166,7 +167,7 @@ class AnalyzerChain(Process):
                 if yzable is not None:
                     # We need to try to empty the queue as we put new items in,
                     # otherwise a deadlock is possible.
-                    while self._go.is_set():
+                    while not self._stop.is_set():
                         try:
                             queues[0].put_nowait(yzable)
                             # We must increment in_flight here, as if _go.is_set() hits,
@@ -176,19 +177,23 @@ class AnalyzerChain(Process):
                             break
                         except Queue.Full:
                             if not pop_queue():
-                                sleep(0.5)
+                                sleep(self.queue_wait_sleep)
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
                 if self.in_flight == 0:
-                    sleep(1)
-                elif curtime - last_in_flight > 60:
+                    sleep(self.queue_wait_sleep)
+                elif self.timewarn and curtime - last_in_flight > self.timewarn:
                     # report warnings if we've been waiting too long!
-                    if curtime - last_in_flight_error_report > 60:
+                    if curtime - last_in_flight_error_report > self.timewarn:
                         self.logger.warning('Most recent in-flight packet over %d seconds old, ' \
                                             '%d outstanding!' % (curtime - last_in_flight,
                                                                  self.in_flight))
                         last_in_flight_error_report = curtime
+
+                if self.in_flight != 0 and self.timeout and \
+                       curtime - last_in_flight > self.timeout:
+                    break
 
             # go is clear and none in_flight, stop all analyzers
             self.logger.info("Finished main loop")
@@ -230,7 +235,7 @@ class Analyzer(Process):
     .cleanup() and set the 'name' attr.
     """
     name = "Analyzer Base Class"
-    def __init__(self, inQ, outQ, debug=False, trace=False):
+    def __init__(self, inQ, outQ, debug=False, trace=False, queue_wait_sleep=1):
         """
         Sets up an inQ, outQ
         """
@@ -238,6 +243,9 @@ class Analyzer(Process):
         self.inQ  = inQ
         self.outQ = outQ
         self.trace = trace
+        self.queue_wait_sleep = queue_wait_sleep
+
+        assert float(queue_wait_sleep) > 0
 
     def run(self):
         """
@@ -247,11 +255,11 @@ class Analyzer(Process):
             self.prepare_process()
             self.prepare()
             self.logger.debug("Starting.")
-            while self._go.is_set():
+            while not self._stop.is_set():
                 try:
                     yzable = self.inQ.get_nowait()
                 except Queue.Empty:
-                    sleep(1)
+                    sleep(self.queue_wait_sleep)
                     continue
                 self._trace("Analyzer %s getting ready to process %s" % (type(self).__name__,
                                                                          yzable))
@@ -267,7 +275,7 @@ class Analyzer(Process):
                 # this blocks when processes later in the chain block
                 initial_block = time()
                 last_blocked = initial_block
-                while self._go.is_set():
+                while not self._stop.is_set():
                     try:
                         self.outQ.put_nowait(yzable)
                         break
@@ -276,7 +284,7 @@ class Analyzer(Process):
                         if (cur - last_blocked) > 10:
                             self.logger.warning("Chain blocked for %d seconds" % (cur - initial_block))
                             last_blocked = cur
-                        sleep(1)
+                        sleep(self.queue_wait_sleep)
                 self._trace("Analyzer %s finished processing %s" % (type(self).__name__,
                                                                     yzable))
 
@@ -434,4 +442,3 @@ class SpeedDiagnostics(Analyzer):
                 out += "%s --> %s, %.1f\n" % (bin, count, count / tot)
         multi_syslog(out, logger=self.logger.debug)
         self.logger.info("SpeedDiagnostics finished")
-

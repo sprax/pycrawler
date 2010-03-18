@@ -24,13 +24,16 @@ class Process(multiprocessing.Process):
     """
     _debug = False
 
-    def __init__(self, go=None, debug=None):
+    def __init__(self, go=None, debug=None, _stop=None):
         """
         Keep self.name as its previously set value, or replace it with
         "Unnamed"
 
         If go is not provided, then create a self._go event, which
-        self.prepare_process will set.  self.stop() clears self._go.
+        self.prepare_process will set.
+
+        If _stop is not provided, then create a self._stop event, which
+        self.stop() will clear, and will cause the process to stop.
         """
         self.logger = _logging.logger
 
@@ -40,6 +43,7 @@ class Process(multiprocessing.Process):
             self.name = "Unnamed"
         multiprocessing.Process.__init__(self, name=self.name)
         self._go = go or multiprocessing.Event()
+        self._stop = _stop or multiprocessing.Event()
 
     def cleanup_process(self):
         """
@@ -71,7 +75,7 @@ class Process(multiprocessing.Process):
 
     def stop(self):
         self.logger.debug("Stop called.")
-        self._go.clear()
+        self._stop.set()
 
 def multi_syslog(level=LOG_DEBUG, msg=None, exc=None, logger=None):
     """

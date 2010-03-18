@@ -238,7 +238,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
             self.urlQ = PersistentQueue.FIFO(
                 os.path.join(self.config["data_path"], "urlQ"))
             # main loop updates hostQ and urlQ
-            while self._go.is_set():
+            while not self._stop.is_set():
                 # do something to put hosts into packed_hostQ for the fetchers
                 try:
                     info = self.inQ.get_nowait()

@@ -97,7 +97,7 @@ class FetchServer(Process):
             self.manager.start()
             self.hostQ = multiprocessing.Queue(1000)
             self.logger.debug("Entering main loop")
-            while self._go.is_set():
+            while not self._stop.is_set():
                 if self.reload.is_set():
                     if self.valid_new_config():
                         self.config = copy(self.relay.config)
@@ -112,7 +112,7 @@ class FetchServer(Process):
                     continue
                 # AnalyzerChain records data streaming out of fetchers
                 ac = self.csm.get_analyzerchain()
-                while self._go.is_set() and not self.reload.is_set():
+                while not self._stop.is_set() and not self.reload.is_set():
                     self.logger.debug("Creating & start Fetcher")
                     # could do multiple fetchers here...
                     self.fetcher = Fetcher(
@@ -121,7 +121,7 @@ class FetchServer(Process):
                         outQ = ac.inQ,
                         params = self.config["fetcher_options"])
                     self.fetcher.start()
-                    while self._go.is_set() and self.fetcher.is_alive():
+                    while not self._stop.is_set() and self.fetcher.is_alive():
                         #syslog(LOG_DEBUG, "Fetcher is alive.")
                         #self.config["heart_beat"] = time()
                         sleep(1)
@@ -252,7 +252,7 @@ class TestHarness(Process):
                     })
             self.logger.info("FetchClient.add_url(\"http://cnn.com\")")
             fc.add_url("http://cnn.com")
-            while self._go.is_set() and fs.is_alive():
+            while not self._stop.is_set() and fs.is_alive():
                 sleep(.1)
             # call stop on FetchClient, not FetchServer
             try:

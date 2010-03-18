@@ -73,7 +73,7 @@ the input to an AnalyzerChain.
 
     _debug = False
 
-    def __init__(self, go=None, hostQ=None, outQ=None, params={},
+    def __init__(self, go=None, _stop=None, hostQ=None, outQ=None, params={},
                  pipelining=False, **kwargs):
         """
         If 'go' is None, then it creates and sets a go Event.
@@ -107,7 +107,7 @@ the input to an AnalyzerChain.
 
         if not hasattr(self, "name"):
             self.name = self.CRAWLER_NAME
-        Process.__init__(self, go, self._debug)
+        super(Fetcher, self).__init__(go=go, debug=self._debug, _stop=_stop)
 
         self.logger.info("Created with useragent: %s" % user_agent)
 
@@ -265,7 +265,7 @@ the input to an AnalyzerChain.
         self._process_finished_list(finished_list)
 
     def _queue_idle_links(self):
-        while self.idlelist and self._go.is_set():
+        while self.idlelist and not self._stop.is_set():
             fetch_rec = None
             c = self.idlelist.pop()
             if c.host.data["failed"] >= self.MAX_FAILURES_PER_HOST \
@@ -273,7 +273,7 @@ the input to an AnalyzerChain.
                 self.logger.info(c.host.hostkey + "too many failures, retiring.")
                 self.retire(c.host)
             else:
-                while fetch_rec is None and self._go.is_set():
+                while fetch_rec is None and not self._stop.is_set():
                     self.msg("setting next URL")
                     try:
                         fetch_rec = c.host.data["links"].pop()
@@ -308,7 +308,7 @@ the input to an AnalyzerChain.
 
     def main(self):
         "loop until go is cleared"
-        while self._go.is_set():
+        while not self._stop.is_set():
             self.msg("outer loop")
             if self.FETCHES_TO_LIVE is not None and \
                     self.FETCHES_TO_LIVE < self.fetches:
@@ -324,7 +324,7 @@ the input to an AnalyzerChain.
                 (self.start_num_handles, len(self.freelist), 
                  len(self.idlelist), len(self.m.handles))
             # try to get a host for every free curl object
-            while self.freelist and self._go.is_set():
+            while self.freelist and not self._stop.is_set():
                 try:
                     host = self.hostQ.get_nowait()
                 except Queue.Empty:
@@ -345,14 +345,14 @@ the input to an AnalyzerChain.
 
             # Run the internal curl state machine for the multi stack
             num_handles = self.start_num_handles
-            while self._go.is_set():
+            while not self._stop.is_set():
                 ret, num_handles = self.m.perform()
                 if ret != pycurl.E_CALL_MULTI_PERFORM:
                     break
             #syslog("broke out of perform loop: num_handles(%d) start_num_handles(%d) _go.is_set()->%s" %
-            #       (num_handles, self.start_num_handles, self._go.is_set()))
+            #       (num_handles, self.start_num_handles, not self._stop.is_set()))
             # Check for curl objects which have terminated, and add them to the freelist
-            while self._go.is_set():
+            while not self._stop.is_set():
                 num_q, ok_list, err_list = self.m.info_read()
                 self.logger.debug("info_read: num_q(%d), ok_list(%d), err_list(%d)" % \
                                   (num_q, len(ok_list), len(err_list)))
