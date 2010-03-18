@@ -29,7 +29,7 @@ Provides a PersistentQueue.FIFO and PersistentQueue.RecordFactory of non-memory-
       entry_points="""
       # -*- Entry points: -*-
       """,
-      setup_requires=['coverage', 'nose>=0.11'],
+      setup_requires=['coverage>=3.3', 'nose>=0.11'],
       packages=["PersistentQueue"],
       )
 
