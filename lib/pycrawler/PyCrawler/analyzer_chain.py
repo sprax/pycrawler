@@ -114,7 +114,8 @@ class AnalyzerChain(Process):
             self.prepare_process()
             if not self._yzers:
                 self.logger.warning("run called with no analyzers")
-                return self.cleanup_process()
+                # The next lines stops coverage, so doesn't get recorded as covered.
+                return self.cleanup_process() # pragma: no cover
 
             self.logger.debug("starting yzers with queues between")
 
@@ -192,7 +193,7 @@ class AnalyzerChain(Process):
                                                                  self.in_flight))
                         last_in_flight_error_report = curtime
 
-                if self.in_flight != 0 and self.timeout and \
+                if self.in_flight != 0 and not self._stop.is_set() and self.timeout and \
                        curtime - last_in_flight > self.timeout:
                     break
 
