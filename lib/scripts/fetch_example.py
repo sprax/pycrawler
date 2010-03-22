@@ -12,10 +12,14 @@ sys.path.extend(".")
 import traceback
 import multiprocessing
 from time import time, sleep
-from syslog import syslog, openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
+from syslog import openlog, setlogmask, LOG_UPTO, LOG_INFO, LOG_DEBUG, LOG_NOTICE, LOG_NDELAY, LOG_CONS, LOG_PID, LOG_LOCAL0
 from optparse import OptionParser
 from PyCrawler import Fetcher, AnalyzerChain, GetLinks, SpeedDiagnostics, LogInfo, URL, CrawlStateManager
 from PersistentQueue import RecordFIFO, RecordFactory, JSON, b64, define_record
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 TIMEOUT=3600
 
@@ -116,34 +120,34 @@ def wait_for_finish(ac, fetcher, quiet=False):
     for sig in (SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM):
         signal(sig, lambda a,b: fetcher._go.clear())
 
-    syslog(LOG_DEBUG, "calling AnalyzerChain.start()")
+    logger.debug("calling AnalyzerChain.start()")
     ac.start()
-    syslog(LOG_DEBUG, "AnalyzerChain started")
+    logger.debug("AnalyzerChain started")
     
-    syslog(LOG_DEBUG, "calling Fetcher.start()")
+    logger.debug("calling Fetcher.start()")
     fetcher.start()
-    syslog(LOG_DEBUG, "Fetcher started")
+    logger.debug("Fetcher started")
 
-    syslog(LOG_DEBUG, "Entering while loop to wait for fetcher to perish.")
+    logger.debug("Entering while loop to wait for fetcher to perish.")
     i = 0
     while fetcher.is_alive() and i < TIMEOUT:
         i = i + 1
         if i % 60 == 0:
-            syslog(LOG_DEBUG, "Waiting for fetcher.  Children: %s" % multiprocessing.active_children())
+            logger.debug("Waiting for fetcher.  Children: %s" % multiprocessing.active_children())
         sleep(1)
 
-    syslog(LOG_DEBUG, "fetcher perished, stopping")
+    logger.debug("fetcher perished, stopping")
     fetcher.stop()  # do we need to call this?
 
-    syslog(LOG_DEBUG, "stopping the AnalyzerChain")
+    logger.debug("stopping the AnalyzerChain")
     ac.stop()
 
-    syslog(LOG_DEBUG, "Waiting for any unfinished children.")
+    logger.debug("Waiting for any unfinished children.")
     while len(multiprocessing.active_children()) > 1:
-        syslog(LOG_DEBUG, "Waiting for: %s" % multiprocessing.active_children())
+        logger.debug("Waiting for: %s" % multiprocessing.active_children())
         sleep(1)
 
-    syslog(LOG_DEBUG, "Done.")
+    logger.debug("Done.")
 
 if __name__ == "__main__":
     parser = OptionParser(description=__doc__)
