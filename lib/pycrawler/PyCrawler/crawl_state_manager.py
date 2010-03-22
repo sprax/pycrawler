@@ -227,6 +227,8 @@ with each host's FIFOs, which includes applying RobotFileParser.
         self.hostQ = None
         self.urlQ = None
 
+    def prepare_process(self):
+        super(CrawlStateManager, self).prepare_process()
         self.logger = logging.getLogger('PyCrawler.CrawlStateManager.CrawlStateManager')
 
     def run(self):
@@ -242,12 +244,15 @@ with each host's FIFOs, which includes applying RobotFileParser.
                 os.path.join(self.config["data_path"], "urlQ"))
             # main loop updates hostQ and urlQ
             while not self._stop.is_set():
+                self.logger.debug('CrawlStateManager loop.')
                 # do something to put hosts into packed_hostQ for the fetchers
                 try:
                     info = self.inQ.get_nowait()
+                    self.logger.debug('Got a %r' % info)
                 except Queue.Empty:
                     # do something to sleep?
-                    pass
+                    sleep(1)
+                    continue
                 # is it a host returning from service?
                 if isinstance(info, HostRecord):
                     self.hostQ.put(info)
