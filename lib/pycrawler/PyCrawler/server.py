@@ -50,7 +50,8 @@ class FetchServer(Process):
 
         Process.__init__(self)
 
-        self.logger = logging.getLogger('PyCrawler.FetchServer.ManagerClass')
+        #self.logger = logging.getLogger('PyCrawler.FetchServer.ManagerClass')
+        self.logger = multiprocessing.get_logger()
 
         self.address = address
         self.authkey = authkey
@@ -65,12 +66,21 @@ class FetchServer(Process):
         self.ManagerClass.register("put", callable=self.inQ.put)
         self.ManagerClass.register("stop", callable=self.stop)
         self.ManagerClass.register("set_config", callable=self.set_config)
+        self.ManagerClass.register("get_config", callable=self.get_config)
+        self.ManagerClass.register("reload", callable=self.reload.set)
 
         self.ac = None
         self.fetcher = None
 
+    def get_config(self):
+        if hasattr(self.relay, 'config'):
+            return self.relay.config
+        else:
+            return None
+
     def set_config(self, config):
         "Passes config into the relay"
+        #self.logger.debug('set_config: %r' % config)
         try:
             self.relay.config = config
             self.reload.set()
@@ -102,11 +112,18 @@ class FetchServer(Process):
             self.logger.debug("Entering main loop")
             while not self._stop.is_set():
                 if self.reload.is_set():
+                    self.logger.info("Reloaded!")
                     if self.valid_new_config():
                         self.config = copy(self.relay.config)
                         self.logger.debug("creating & starting CrawlStateManager")
                         if self.csm:
                             self.csm.stop()
+                        if self.fetcher:
+                            self.fetcher.stop()
+
+                        # Let it cleanup.
+                        sleep(1)
+                            
                         self.csm = CrawlStateManager(
                             self._go, self.id, self.inQ, self.hostQ, self.config)
                         self.csm.start()
@@ -128,7 +145,7 @@ class FetchServer(Process):
                         outQ = self.ac.inQ,
                         params = self.config["fetcher_options"])
                     self.fetcher.start()
-                    while not self._stop.is_set() and self.fetcher.is_alive():
+                    while not self._stop.is_set() and self.fetcher.is_alive() and not self.reload.is_set():
                         #syslog(LOG_DEBUG, "Fetcher is alive.")
                         #self.config["heart_beat"] = time()
                         sleep(1)
@@ -197,10 +214,15 @@ class FetchClient:
         LocalFetchManager.register("put")
         LocalFetchManager.register("stop")
         LocalFetchManager.register("set_config")
+        LocalFetchManager.register("get_config")
+        LocalFetchManager.register("reload")
+        
         self.fm = LocalFetchManager(address, authkey)
         self.fm.connect()
         self.stop = self.fm.stop
         self.set_config = self.fm.set_config
+        self.get_config = self.fm.get_config
+        self.reload = self.fm.reload
 
         self.logger = logging.getLogger('PyCrawler.Server.FetchClient')
 
@@ -209,6 +231,7 @@ class FetchClient:
         Create a new URL record and add it to this FetchServer
         """
         yzable = FetchInfo.create(url=url)
+        print 'Adding %r' % yzable
         try:
             self.fm.put(yzable)
         except Exception, exc:
@@ -252,6 +275,9 @@ class TestHarness(Process):
             fs = FetchServer(debug=self._debug)
             fs.start()
             self.logger.info("Creating & configurating FetchClient")
+
+            sleep(2)
+
             fc = FetchClient()            
             fc.set_config({
                     "debug": self._debug,
