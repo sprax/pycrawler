@@ -53,7 +53,7 @@ class HostQueue(BatchPriorityQueue):
     recent bulk import.  Doing otherwise will corrupt the HostQueue.
     """
     def __init__(self, data_path, MAX_BYTE_RATE=2**13, MAX_HIT_RATE=1./15):
-        PersistentQueue.BatchPriorityQueue.__init__(
+        BatchPriorityQueue.__init__(
             self, HostRecord, HostRecord_template, data_path, 
             4, # unique_key
             0, # priority_key
@@ -238,7 +238,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
             self.hosts_in_flight = 0
             self.hostQ = HostQueue(
                 os.path.join(self.config["data_path"], "hostQ"))
-            self.urlQ = PersistentQueue.FIFO(
+            self.urlQ = FIFO(
                 os.path.join(self.config["data_path"], "urlQ"))
             # main loop updates hostQ and urlQ
             while not self._stop.is_set():
@@ -249,13 +249,13 @@ with each host's FIFOs, which includes applying RobotFileParser.
                     # do something to sleep?
                     pass
                 # is it a host returning from service?
-                if isinstance(info, HostInfo):
+                if isinstance(info, HostRecord):
                     self.hostQ.put(info)
                     self.hosts_in_flight -= 1
                     return
                 # must be a FetchInfo
                 assert isinstance(info, FetchInfo)
-                urlQ.put(info)
+                self.urlQ.put(info)
                 sleep(1) # slow things down
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
@@ -319,7 +319,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
             self.hostQ.sync()
 
     def get_urlQ(self, host):
-        return PersistentQueue.RecordFIFO(
+        return RecordFIFO(
             "HostUrlQ", 
             "score state last_modified http_response scheme hostname port relurl data",
             (int, int, int, int, str, Static(host.hostname), str, b64, JSON),
@@ -352,7 +352,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
             csm_inQ = self.inQ
             def analyze(self, yzable):
                 """
-                Puts FetchInfo & HostInfo objects into csm_inQ
+                Puts FetchInfo & HostRecord objects into csm_inQ
                 """
                 self.csm_inQ.put(yzable)
                 return yzable

@@ -121,7 +121,7 @@ class FetchServer(Process):
                     self.fetcher = Fetcher(
                         go = self._go,
                         hostQ = self.hostQ,
-                        outQ = ac.inQ,
+                        outQ = self.ac.inQ,
                         params = self.config["fetcher_options"])
                     self.fetcher.start()
                     while not self._stop.is_set() and self.fetcher.is_alive():
