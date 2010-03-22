@@ -83,7 +83,8 @@ class BatchPriorityQueue(RecordFactory):
         try:
             if not self._sync_pending.available():
                 raise self.Syncing
-            self._pQ.close()
+            if self._pQ:
+                self._pQ.close()
             self._dumpQ.close()
         finally:
             self._lock.release()
@@ -187,7 +188,8 @@ class BatchPriorityQueue(RecordFactory):
             if not acquired:
                 raise self.Syncing
             # move queues to the side
-            self._pQ.close()
+            if self._pQ:
+                self._pQ.close()
             self._dumpQ.close()
             os.rename(self._pQ_path, self._pQ_sync)
             os.rename(self._dumpQ_path, self._dumpQ_sync)
