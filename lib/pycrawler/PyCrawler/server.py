@@ -105,6 +105,8 @@ class FetchServer(Process):
                     if self.valid_new_config():
                         self.config = copy(self.relay.config)
                         self.logger.debug("creating & starting CrawlStateManager")
+                        if self.csm:
+                            self.csm.stop()
                         self.csm = CrawlStateManager(
                             self._go, self.id, self.inQ, self.hostQ, self.config)
                         self.csm.start()
@@ -114,6 +116,8 @@ class FetchServer(Process):
                     sleep(1)
                     continue
                 # AnalyzerChain records data streaming out of fetchers
+                if self.ac:
+                    self.ac.stop()
                 self.ac = self.csm.get_analyzerchain()
                 while not self._stop.is_set() and not self.reload.is_set():
                     self.logger.debug("Creating & start Fetcher")
@@ -137,11 +141,13 @@ class FetchServer(Process):
             #    try: child.terminate()
             #    except: pass
         finally:
-            if self.manager:
+            if self.manager and hasattr(self.manager, 'shutdown'):
                 self.logger.info("Attempting manager.shutdown()")
                 self.manager.shutdown()
             if self.fetcher:
                 self.fetcher.stop()
+            if self.csm:
+                self.csm.stop()
             if self.ac:
                 self.ac.stop()
             while len(multiprocessing.active_children()) > 0:
