@@ -23,6 +23,8 @@ from PyCrawler import Fetcher
 from PyCrawler.crawl_state_manager import HostRecord, HostFetchRecord, HostRecord_template, \
      FetchRecord_defaults
 
+from nose.tools import assert_false
+
 class TestFetcher:
 
     def __init__(self):
@@ -48,6 +50,7 @@ class TestFetcher:
                 raise
 
     def test_fetcher(self, num=5, timeout=20):
+        """ Test that fetcher can download several URLs as specified. """
         # make factories for creating surrogate HostRecord and RawFetchRecords for testing:
         host_factory = RecordFactory(
             HostRecord, 
@@ -119,8 +122,7 @@ class TestFetcher:
             except Queue.Empty:
                 time.sleep(0.1)
 
-        if failures:
-            sys.exit(failures)
+        assert_false(failures)
 
 def main(argv):
     parser = OptionParser()
