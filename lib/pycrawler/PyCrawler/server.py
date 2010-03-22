@@ -66,6 +66,9 @@ class FetchServer(Process):
         self.ManagerClass.register("stop", callable=self.stop)
         self.ManagerClass.register("set_config", callable=self.set_config)
 
+        self.ac = None
+        self.fetcher = None
+
     def set_config(self, config):
         "Passes config into the relay"
         try:
@@ -111,7 +114,7 @@ class FetchServer(Process):
                     sleep(1)
                     continue
                 # AnalyzerChain records data streaming out of fetchers
-                ac = self.csm.get_analyzerchain()
+                self.ac = self.csm.get_analyzerchain()
                 while not self._stop.is_set() and not self.reload.is_set():
                     self.logger.debug("Creating & start Fetcher")
                     # could do multiple fetchers here...
@@ -125,6 +128,8 @@ class FetchServer(Process):
                         #syslog(LOG_DEBUG, "Fetcher is alive.")
                         #self.config["heart_beat"] = time()
                         sleep(1)
+            else:
+                self.logger.debug("Stopping server.")
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
             self.stop()
@@ -135,6 +140,10 @@ class FetchServer(Process):
             if self.manager:
                 self.logger.info("Attempting manager.shutdown()")
                 self.manager.shutdown()
+            if self.fetcher:
+                self.fetcher.stop()
+            if self.ac:
+                self.ac.stop()
             while len(multiprocessing.active_children()) > 0:
                 self.logger.info("Waiting for: " + str(multiprocessing.active_children()))
                 sleep(1)

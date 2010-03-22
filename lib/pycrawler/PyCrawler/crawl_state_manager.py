@@ -224,6 +224,9 @@ with each host's FIFOs, which includes applying RobotFileParser.
         self.config = config
         self.hosts_in_flight = None
 
+        self.hostQ = None
+        self.urlQ = None
+
         self.logger = logging.getLogger('PyCrawler.CrawlStateManager.CrawlStateManager')
 
     def run(self):
@@ -258,7 +261,8 @@ with each host's FIFOs, which includes applying RobotFileParser.
             multi_syslog(exc, logger=self.logger.warning)
         finally:
             self.packed_hostQ.close()
-            self.hostQ.close()
+            if self.hostQ:
+                self.hostQ.close()
             self.logger.debug("Exiting.")
         try:
             self.cleanup_process()
