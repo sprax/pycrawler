@@ -319,13 +319,13 @@ class Analyzer(Process):
         Initialize whatever state you need for your self.analyze(job).
         Create whatever special state or tables this analyzer needs.
         """
-        self.logger.info("Prepare.")
+        self.logger.info("Prepare %s." % self.name)
     def cleanup(self):
         """
         Called at the very end of the multiprocessing.Process.run
         function.
         """
-        self.logger.info("Cleanup.")
+        self.logger.info("Cleanup %s." % self.name)
 
 class GetLinks(Analyzer):
     """
