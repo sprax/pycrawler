@@ -11,6 +11,8 @@ __version__ = "0.1"
 import logging
 import traceback
 import multiprocessing
+
+from setproctitle import getproctitle, setproctitle
 from signal import signal, SIG_IGN, SIGINT, SIGHUP, SIGTERM, SIGQUIT
 from syslog import LOG_NOTICE, LOG_DEBUG, syslog
 
@@ -72,6 +74,8 @@ class Process(multiprocessing.Process):
             self.logger.setLevel(logging.DEBUG)
         else:
             self.logger.setLevel(logging.INFO)
+
+        setproctitle("%s - [%s]" % (getproctitle().split(' - [')[0], self.name))
 
     def stop(self):
         self.logger.debug("Stop called.")
