@@ -269,6 +269,13 @@ class Analyzer(Process):
                     continue
                 self._trace("Analyzer %s getting ready to process %s" % (type(self).__name__,
                                                                          yzable))
+
+                # We need to keep things sane.  This is anti-duck-typing to be sure
+                # we're sending things we intended to send.
+                if not isinstance(yzable, Analyzable):
+                    self.logger.error('Expected instance of Analyzable(), got %r' % yzable)
+                    continue
+
                 try:
                     yzable = self.analyze(yzable)
                 except Exception, exc:
@@ -345,7 +352,6 @@ class GetLinks(Analyzer):
         """uses URL.get_links to get URLs out of each page
         and pass it on as an attr of the yzable"""
         if isinstance(yzable, FetchInfo):
-            #syslog(yzable.raw_data)
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
