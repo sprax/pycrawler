@@ -82,7 +82,7 @@ class FetchServer(Process):
 
     def prepare_process(self):
         super(FetchServer, self).prepare_process()
-        self.logger = logging.getLogger('PyCrawler.FetchServer.ManagerClass')
+        self.logger = logging.getLogger('PyCrawler.FetchServer')
 
     def run(self):
         """
