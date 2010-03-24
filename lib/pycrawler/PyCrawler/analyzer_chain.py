@@ -359,9 +359,7 @@ class GetLinks(Analyzer):
 class LogInfo(Analyzer):
     name = "LogInfo"
     def analyze(self, yzable):
-        self.logger.info("Analyze called with %s" % yzable)
-        if isinstance(yzable, FetchInfo):
-            self.logger.info("Analyze: %s%s" % (yzable.hostkey, yzable.relurl))
+        self.logger.info("Analyze: %r" % yzable)
         return yzable
 
 class SpeedDiagnostics(Analyzer):
