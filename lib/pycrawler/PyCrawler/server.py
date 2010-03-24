@@ -200,7 +200,7 @@ class FetchServer(Process):
         # must be valid
         return True
 
-class FetchClient:
+class FetchClient(object):
     """
     TODO: can this be a subclass of BaseManager?  Can this be cleaner?
     """
