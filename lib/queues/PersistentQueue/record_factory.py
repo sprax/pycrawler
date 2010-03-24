@@ -14,7 +14,10 @@ import bz2
 import copy
 import keyword
 import operator
-import simplejson
+
+# _speedups.so makes simplejson far faster
+import simplejson as json
+
 import subprocess
 from base64 import urlsafe_b64encode, urlsafe_b64decode
 from collections import namedtuple
@@ -135,7 +138,7 @@ class RecordFactory(object):
          * bool --> 0 or 1
          * float --> ten-digit fixed point number
          * b64 --> urlsafe_b64encode
-         * JSON --> urlsafe_b64encode(bz2.compress(simplejson.dumps()))
+         * JSON --> urlsafe_b64encode(bz2.compress(json.dumps()))
          * others must be of type basestring already
         """
         assert len(record) == len(self._template), \
@@ -162,7 +165,7 @@ class RecordFactory(object):
             elif val_type is JSON:
                 parts.append(
                     urlsafe_b64encode(
-                        bz2.compress(simplejson.dumps(val))))
+                        bz2.compress(json.dumps(val))))
             else:
                 assert isinstance(val, basestring), \
                     "Is this a new special type: %s\nrepr: %s" % \
@@ -213,7 +216,7 @@ class RecordFactory(object):
                 record.append(urlsafe_b64decode(val))
             elif val_type is JSON:
                 record.append(
-                    simplejson.loads(
+                    json.loads(
                         bz2.decompress(urlsafe_b64decode(val))))
             else:
                 assert isinstance(val, basestring), \
