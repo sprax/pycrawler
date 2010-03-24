@@ -145,6 +145,7 @@ class FetchServer(Process):
                         #syslog(LOG_DEBUG, "Fetcher is alive.")
                         #self.config["heart_beat"] = time()
                         sleep(1)
+                    self.fetcher.stop()
             else:
                 self.logger.debug("Stopping server.")
         except Exception, exc:
