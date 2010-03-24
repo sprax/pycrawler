@@ -216,9 +216,9 @@ with each host's FIFOs, which includes applying RobotFileParser.
         Setup a go Event
         """
         self.id = id
-        if "debug" in config:
-            self._debug = config["debug"]
-        Process.__init__(self, go)
+
+        debug = config.get("debug", None)
+        Process.__init__(self, go, debug=debug)
         self.inQ = inQ
         self.packed_hostQ = packed_hostQ
         self.config = config
