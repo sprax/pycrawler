@@ -375,17 +375,12 @@ class SpeedDiagnostics(Analyzer):
             self.deltas.append((yzable.end - yzable.start, yzable.state))
             self.arrivals.append(time() - self.start_time)
         return yzable
-    def cleanup(self):
-        """send a long message to the log"""
-        stop = time()
-        self.logger.info("doing cleanup")
-        out = ""
-        out += "fetcher finished, now analyzing times\n"
+
+    def stats(self):
         self.deltas.sort()
-        out += "%d deltas to consider\n" % len(self.deltas)
         if not self.deltas: 
             self.logger.info("Apparently saw no URLinfo instances")
-            return
+            return None, None, None
         median = self.deltas[int(len(self.deltas)/2.)][0]
         mean = 0.
         for d in self.deltas:
@@ -394,6 +389,21 @@ class SpeedDiagnostics(Analyzer):
         success = 0
         for d in self.deltas:
             success += 1
+
+        return mean, median, success
+
+    def cleanup(self):
+        """send a long message to the log"""
+        stop = time()
+        self.logger.info("doing cleanup")
+        out = ""
+        out += "fetcher finished, now analyzing times\n"
+        out += "%d deltas to consider\n" % len(self.deltas)
+
+        mean, median, success = self.stats()
+        if success is None:
+            return
+
         out += "%.4f mean, %.4f median, %.2f%% succeeded\n" % \
             (mean, median, 100. * success/float(len(self.deltas)))
         begin = 0
