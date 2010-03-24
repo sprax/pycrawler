@@ -138,6 +138,19 @@ class BaseFIFO(object):
         self._sync_head()  # raises if empty
         return self._head_cache[0]
 
+    def empty(self):
+        """ Returns True if queue is empty, False otherwise. """
+        try:
+            self._sync_head()
+        except Queue.Empty:
+            return True
+        else:
+            return False
+
+    def full(self):
+        """ Return False as queue is never full. """
+        return False
+
     def get(self):
         """
         Syncs the head and then returns the value that is presently at
