@@ -288,8 +288,8 @@ class TestHarness(Process):
                         "FETCHER_TIMEOUT":   30000,
                         }
                     })
-            self.logger.info("FetchClient.add_url(\"http://cnn.com\")")
-            fc.add_url("http://cnn.com")
+            #self.logger.info("FetchClient.add_url(\"http://cnn.com\")")
+            #fc.add_url("http://cnn.com")
             while not self._stop.is_set() and fs.is_alive():
                 sleep(.1)
             # call stop on FetchClient, not FetchServer
