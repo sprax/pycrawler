@@ -31,7 +31,7 @@ Provides a web crawler.
                         'daemon',
                         'simplejson', 
                         'setproctitle',
-                        ]
+                        ],
 
       setup_requires=['coverage>=3.3', 'nose>=0.11'],
 
