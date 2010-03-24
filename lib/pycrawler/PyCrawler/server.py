@@ -12,12 +12,7 @@ __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
 
-import os
-import Queue
-import daemon  # from PyPI
-import pprint
 import logging
-import traceback
 import multiprocessing
 import multiprocessing.managers
 from copy import copy
@@ -49,9 +44,6 @@ class FetchServer(Process):
         self._debug = debug
 
         Process.__init__(self)
-
-        #self.logger = logging.getLogger('PyCrawler.FetchServer.ManagerClass')
-        self.logger = multiprocessing.get_logger()
 
         self.address = address
         self.authkey = authkey
@@ -87,6 +79,10 @@ class FetchServer(Process):
             self.logger.debug("set_config")
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
+
+    def prepare_process(self):
+        super(FetchServer, self).prepare_process()
+        self.logger = logging.getLogger('PyCrawler.FetchServer.ManagerClass')
 
     def run(self):
         """
