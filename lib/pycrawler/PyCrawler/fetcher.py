@@ -354,8 +354,7 @@ the input to an AnalyzerChain.
             # Check for curl objects which have terminated, and add them to the freelist
             while not self._stop.is_set():
                 num_q, ok_list, err_list = self.m.info_read()
-                self.logger.debug("info_read: num_q(%d), ok_list(%d), err_list(%d)" % \
-                                  (num_q, len(ok_list), len(err_list)))
+                self.msg("info_read")
                 self._process_finished_handles(ok_list, err_list)
                 if num_q == 0:
                     break
