@@ -26,7 +26,12 @@ Provides a web crawler.
       url="http://code.google.com/p/pycrawler/",
       license="MIT",
       zip_safe=False,
-      install_requires=['pycurl', 'PersistentQueue', 'daemon', 'simplejson', 'setproctitle'],
+      install_requires=['pycurl==7.18.2',
+                        'PersistentQueue',
+                        'daemon',
+                        'simplejson', 
+                        'setproctitle',
+                        ]
 
       setup_requires=['coverage>=3.3', 'nose>=0.11'],
 
