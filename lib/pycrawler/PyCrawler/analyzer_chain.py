@@ -42,9 +42,9 @@ class InvalidAnalyzer(Exception):
 class FetchInfo(Analyzable):
     """
     >>> FetchInfo.create(url='http://foo')
-    FetchInfo(raw_data=None, depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo', relurl='/', last_modified=None)
+    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo', relurl='/', last_modified=None)
     >>> FetchInfo.create(url='http://foo:7')
-    FetchInfo(raw_data=None, depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo:7', relurl='/', last_modified=None)
+    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo:7', relurl='/', last_modified=None)
     """
     __slots__ = ('raw_data', 'depth', 'start', 'end', 'state', 'links',
                  'hostkey', 'relurl', 'last_modified')
@@ -61,6 +61,10 @@ class FetchInfo(Analyzable):
         return FetchInfo(raw_data=raw_data, depth=depth, start=start,
                          end=end, state=state, last_modified=last_modified,
                          links=links, hostkey=hostkey, relurl=relurl)
+
+    def __repr__(self):
+        args = ', '.join('%s=%r' % (k, v) for k, v in self._items() if k != 'raw_data')
+        return '%s(%s)' % (type(self).__name__, args)
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"
