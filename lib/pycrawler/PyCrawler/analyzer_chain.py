@@ -42,12 +42,12 @@ class InvalidAnalyzer(Exception):
 class FetchInfo(Analyzable):
     """
     >>> FetchInfo.create(url='http://foo')
-    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo', relurl='/', last_modified=None)
+    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo', relurl='/', last_modified=None, http_response=None)
     >>> FetchInfo.create(url='http://foo:7')
-    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo:7', relurl='/', last_modified=None)
+    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo:7', relurl='/', last_modified=None, http_response=None)
     """
-    __slots__ = ('raw_data', 'depth', 'start', 'end', 'state', 'links',
-                 'hostkey', 'relurl', 'last_modified')
+    __slots__ = ('data', 'depth', 'start', 'end', 'state', 'links',
+                 'hostkey', 'relurl', 'last_modified', 'http_response')
 
     @classmethod
     def create(self, url=None, raw_data=None, depth=None, start=None, end=None,
@@ -58,12 +58,13 @@ class FetchInfo(Analyzable):
             assert port[0] == ':'
             hostkey = hostkey + '%s' % port
 
-        return FetchInfo(raw_data=raw_data, depth=depth, start=start,
+        return FetchInfo(data={'raw_data': raw_data}, depth=depth, start=start,
                          end=end, state=state, last_modified=last_modified,
-                         links=links, hostkey=hostkey, relurl=relurl)
+                         links=links, hostkey=hostkey, relurl=relurl,
+                         http_response=None)
 
     def __repr__(self):
-        args = ', '.join('%s=%r' % (k, v) for k, v in self._items() if k != 'raw_data')
+        args = ', '.join('%s=%r' % (k, v) for k, v in self._items() if k != 'data')
         return '%s(%s)' % (type(self).__name__, args)
 
 class AnalyzerChain(Process):
@@ -109,13 +110,17 @@ class AnalyzerChain(Process):
             raise InvalidAnalyzer("missing name attr")
         self._yzers.append((analyzer, copies))
 
+    def prepare_process(self):
+        super(AnalyzerChain, self).prepare_process()
+        self.logger = logging.getLogger("PyCrawler.Analyzer")
+
     def run(self):
         """
         Gets an Analyzable object from inQ and feeds them into the
         chain of analyzers, which are its child processes.
         """
+        self.prepare_process()
         try:
-            self.prepare_process()
             if not self._yzers:
                 self.logger.warning("run called with no analyzers")
                 # The next lines stops coverage, so doesn't get recorded as covered.
@@ -355,7 +360,7 @@ class GetLinks(Analyzer):
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
-                yzable.raw_data, 
+                yzable.data["raw_data"],
                 yzable.depth)
             if errors:
                 self.logger.debug(", ".join(["[%s]" % x for x in errors]))
@@ -380,7 +385,10 @@ class SpeedDiagnostics(Analyzer):
         """for URLinfo objects, store the key timing and success/failure info"""
         #syslog(str(yzable))
         if isinstance(yzable, FetchInfo):
-            self.deltas.append((yzable.end - yzable.start, yzable.state))
+            if yzable.end is not None and yzable.start is not None:
+                self.deltas.append((yzable.end - yzable.start, yzable.state))
+            else:
+                self.deltas.append((0, yzable.state))
             self.arrivals.append(time() - self.start_time)
         return yzable
 

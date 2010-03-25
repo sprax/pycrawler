@@ -42,10 +42,20 @@ except:
     from StringIO  import StringIO
 
 from process import Process, multi_syslog
-from url import fullurl, get_parts
+from url import get_parts
+from analyzer_chain import FetchInfo
+from crawl_state_manager import HostRecord
 
-# because we use setopt(pycurl.NOSIGNAL, 1)
-signal(SIGPIPE, SIG_IGN)
+def fullurl(fetch_rec):
+    """ hack. """
+    return '%s%s' % (fetch_rec.hostkey, fetch_rec.relurl or '')
+
+try:
+    # because we use setopt(pycurl.NOSIGNAL, 1)
+    signal(SIGPIPE, SIG_IGN)
+except Exception as exc:
+    # sometimes this loads.
+    pass
 
 class Fetcher(Process):
     """
@@ -73,7 +83,7 @@ the input to an AnalyzerChain.
 
     _debug = False
 
-    def __init__(self, go=None, _stop=None, hostQ=None, outQ=None, params={},
+    def __init__(self, go=None, _stop=None, inQ=None, outQ=None, params={},
                  pipelining=False, **kwargs):
         """
         If 'go' is None, then it creates and sets a go Event.
@@ -111,7 +121,7 @@ the input to an AnalyzerChain.
 
         self.logger.info("Created with useragent: %s" % user_agent)
 
-        self.hostQ = hostQ
+        self.inQ = inQ
         self.outQ = outQ
         self.m = None             # prep for first loop
         self.fetches = 0
@@ -186,7 +196,7 @@ the input to an AnalyzerChain.
             self.outQ and self.outQ.qsize() or 0,
             self.fetches, 
             self.FETCHES_TO_LIVE and self.FETCHES_TO_LIVE or -1)
-        self.logger.debug(msg)
+        #self.logger.debug(msg)
 
     def run(self):
         """
@@ -247,9 +257,9 @@ the input to an AnalyzerChain.
                 redirected_fetch_rec.depth = REDIRECTED
                 self.outQ.put(redirected_fetch_rec)
                 try:
-                    c.fetch_rec.scheme, c.fetch_rec.hostname, \
-                                        c.fetch_rec.port, c.fetch_rec.relurl = \
+                    scheme, hostname, port, c.fetch_rec.relurl = \
                                         get_parts(effurl)
+                    c.fetch_rec.hostkey = '%s%s%s' % (scheme, hostname, port)
                 except Exception, exc:
                     multi_syslog(exc, logger=self.logger.warning)
                     # now what?  do something graceful...
@@ -279,7 +289,8 @@ the input to an AnalyzerChain.
                         fetch_rec = c.host.data["links"].pop()
                     except IndexError:
                         break
-                    url = fullurl(fetch_rec)
+                    assert isinstance(fetch_rec, FetchInfo)
+                    url = '%s%s' % (fetch_rec.hostkey, fetch_rec.relurl or '')
                     try:
                         c.setopt(pycurl.URL, url)
                     except Exception, exc:
@@ -326,10 +337,16 @@ the input to an AnalyzerChain.
             # try to get a host for every free curl object
             while self.freelist and not self._stop.is_set():
                 try:
-                    host = self.hostQ.get_nowait()
+                    info = self.inQ.get_nowait()
                 except Queue.Empty:
                     break
-                self.logger.debug("Got host %s, %d links" % (host.hostname, len(host.data["links"])))
+
+                self.logger.debug("Got %r" % info)
+                assert isinstance(info, FetchInfo)
+
+                host = HostRecord(next=None, start=time(), bytes=0, hits=0,
+                                  hostname=info.hostkey, data={"links": [info]})
+
                 # use this attr of HostRecord to hold temporary data
                 # using an instance of Empty class:
                 host.data["conns"] = []
@@ -413,5 +430,7 @@ the input to an AnalyzerChain.
         # clear temp data, so host can get pickled out over outQ and
         # then garbage collected here
         host.data["conns"] = []
-        self.outQ.put(host)
+
+        # we no longer output hosts.
+        #self.outQ.put(host)
 

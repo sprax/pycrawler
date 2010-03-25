@@ -105,7 +105,7 @@ class FetchServer(Process):
             self.prepare_process()
             self.manager = self.ManagerClass(self.address, self.authkey)
             self.manager.start()
-            self.hostQ = multiprocessing.Queue(1000)
+            self.fetchQ = multiprocessing.Queue(1000)
             self.logger.debug("Entering main loop")
             while not self._stop.is_set():
                 if self.reload.is_set():
@@ -122,7 +122,7 @@ class FetchServer(Process):
                         sleep(1)
                             
                         self.csm = CrawlStateManager(
-                            self._go, self.id, self.inQ, self.hostQ, self.config)
+                            self._go, self.id, self.inQ, self.fetchQ, self.config)
                         self.csm.start()
                     self.reload.clear()
                 if self.config is None:
@@ -138,7 +138,7 @@ class FetchServer(Process):
                     # could do multiple fetchers here...
                     self.fetcher = Fetcher(
                         go = self._go,
-                        hostQ = self.hostQ,
+                        inQ = self.fetchQ,
                         outQ = self.ac.inQ,
                         params = self.config["fetcher_options"])
                     self.fetcher.start()
