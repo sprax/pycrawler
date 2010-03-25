@@ -15,3 +15,4 @@ from record import Record, define_record
 from record_fifo import RecordFIFO
 from record_factory import RecordFactory, b64, Static, JSON, insort_right
 from batch_priority_queue import BatchPriorityQueue
+from setdb import SetDB
