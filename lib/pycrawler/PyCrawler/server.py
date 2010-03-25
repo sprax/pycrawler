@@ -60,6 +60,7 @@ class FetchServer(Process):
         self.ManagerClass.register("set_config", callable=self.set_config)
         self.ManagerClass.register("get_config", callable=self.get_config)
         self.ManagerClass.register("reload", callable=self.reload.set)
+        self.ManagerClass.register("qsize", callable=self.inQ.qsize)
 
         self.ac = None
         self.fetcher = None
@@ -213,6 +214,7 @@ class FetchClient(object):
         LocalFetchManager.register("set_config")
         LocalFetchManager.register("get_config")
         LocalFetchManager.register("reload")
+        LocalFetchManager.register("qsize")
         
         self.fm = LocalFetchManager(address, authkey)
         self.fm.connect()
@@ -220,6 +222,7 @@ class FetchClient(object):
         self.set_config = self.fm.set_config
         self.get_config = self.fm.get_config
         self.reload = self.fm.reload
+        self.qsize = self.fm.qsize
 
         self.logger = logging.getLogger('PyCrawler.Server.FetchClient')
 
