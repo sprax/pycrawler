@@ -92,7 +92,7 @@ class AnalyzerChain(Process):
         super(AnalyzerChain, self).prepare_process()
         self.logger = logging.getLogger('PyCrawler.AnalyzerChain.AnalyzerChain')
 
-    def append(self, analyzer, copies=1):
+    def append(self, analyzer, copies=1, args=[], kwargs={}):
         """
         analyzer should be a subclass of Analyzer.  The specified
         number of copies of analyzer will *not* be started while
@@ -109,7 +109,7 @@ class AnalyzerChain(Process):
             return
         if not hasattr(analyzer, "name"):
             raise InvalidAnalyzer("missing name attr")
-        self._yzers.append((analyzer, copies))
+        self._yzers.append((analyzer, copies, args, kwargs))
 
     def enqueue_yzable(self, queue, yzable):
         # We need to try to empty the queue as we put new items in,
@@ -147,11 +147,13 @@ class AnalyzerChain(Process):
             queues = [multiprocessing.Queue(self.qlen)]
             for pos in range(len(self._yzers)):
                 queues.append(multiprocessing.Queue(self.qlen))
-                (yzer, copies) = self._yzers[pos]
+                (yzer, copies, args, kwargs) = self._yzers[pos]
                 yzers = [yzer(queues[pos], queues[pos + 1], 
+                              *args,
                               debug=self._debug,
                               queue_wait_sleep=self.queue_wait_sleep,
                               in_flight=self.in_flight,
+                              **kwargs
                               )
                          for copy in range(copies)]
                 for yzer in yzers:
@@ -390,7 +392,7 @@ class GetLinks(Analyzer):
     def analyze(self, yzable):
         """uses URL.get_links to get URLs out of each page
         and pass it on as an attr of the yzable"""
-        if isinstance(yzable, FetchInfo):
+        if isinstance(yzable, FetchInfo) and "raw_data" in yzable.data:
             errors, host_and_relurls_list = get_links(
                 yzable.hostkey,  
                 yzable.relurl, 
