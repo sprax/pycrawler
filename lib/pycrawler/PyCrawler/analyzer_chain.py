@@ -79,16 +79,17 @@ class AnalyzerChain(Process):
         self.qlen = qlen
         self.inQ  = multiprocessing.Queue(self.qlen)
         self._yzers = []
-        self.in_flight = 0
+        self.in_flight = multiprocessing.Value('i', 0)
         self.total_processed = 0
         self.timeout = timeout
         self.timewarn = timewarn
         self.queue_wait_sleep = queue_wait_sleep
+        self.last_in_flight = 0
 
         assert float(queue_wait_sleep) > 0
 
     def prepare_process(self):
-        Process.prepare_process(self)
+        super(AnalyzerChain, self).prepare_process()
         self.logger = logging.getLogger('PyCrawler.AnalyzerChain.AnalyzerChain')
 
     def append(self, analyzer, copies=1):
@@ -110,9 +111,24 @@ class AnalyzerChain(Process):
             raise InvalidAnalyzer("missing name attr")
         self._yzers.append((analyzer, copies))
 
-    def prepare_process(self):
-        super(AnalyzerChain, self).prepare_process()
-        self.logger = logging.getLogger("PyCrawler.Analyzer")
+    def enqueue_yzable(self, queue, yzable):
+        # We need to try to empty the queue as we put new items in,
+        # otherwise a deadlock is possible.
+        while not self._stop.is_set():
+            try:
+                queue.put_nowait(yzable)
+                # We must increment in_flight here, rather than
+                # above, as if _go.is_set() hits,
+                # we would lose the in-flight packet.
+                self.in_flight.acquire()
+                self.in_flight.value += 1
+                self.in_flight.release()
+
+                self.last_in_flight = time()
+                break
+            except Queue.Full:
+                if not pop_queue():
+                    sleep(self.queue_wait_sleep)
 
     def run(self):
         """
@@ -133,7 +149,10 @@ class AnalyzerChain(Process):
                 queues.append(multiprocessing.Queue(self.qlen))
                 (yzer, copies) = self._yzers[pos]
                 yzers = [yzer(queues[pos], queues[pos + 1], 
-                              debug=self._debug, queue_wait_sleep=self.queue_wait_sleep)
+                              debug=self._debug,
+                              queue_wait_sleep=self.queue_wait_sleep,
+                              in_flight=self.in_flight,
+                              )
                          for copy in range(copies)]
                 for yzer in yzers:
                     yzer.start()
@@ -144,7 +163,10 @@ class AnalyzerChain(Process):
             def pop_queue():
                 try:
                     my_yzable = queues[-1].get_nowait()
-                    self.in_flight -= 1
+                    self.in_flight.acquire()
+                    self.in_flight.value -= 1
+                    self.in_flight.release()
+
                     # delete each yzable as it exits the chain
                     try:
                         del(my_yzable)
@@ -157,9 +179,9 @@ class AnalyzerChain(Process):
                 except Queue.Empty:
                     return 0
 
-            last_in_flight = None
+            self.last_in_flight = None
             last_in_flight_error_report = 0
-            while not self._stop.is_set() or self.in_flight > 0:
+            while not self._stop.is_set() or self.in_flight.value > 0:
                 #syslog(
                 #    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
                 #        % (in_flight, total_processed,
@@ -176,19 +198,7 @@ class AnalyzerChain(Process):
                 except Queue.Empty:
                     yzable = None
                 if yzable is not None:
-                    # We need to try to empty the queue as we put new items in,
-                    # otherwise a deadlock is possible.
-                    while not self._stop.is_set():
-                        try:
-                            queues[0].put_nowait(yzable)
-                            # We must increment in_flight here, as if _go.is_set() hits,
-                            # we would lose the in-flight packet.
-                            self.in_flight += 1
-                            last_in_flight = time()
-                            break
-                        except Queue.Full:
-                            if not pop_queue():
-                                sleep(self.queue_wait_sleep)
+                    self.enqueue_yzable(queues[0], yzable)
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
@@ -196,16 +206,17 @@ class AnalyzerChain(Process):
                 # and we have successfully popped an item.  But we want to
                 # ensure we don't spin here.
                 sleep(self.queue_wait_sleep)
-                if self.in_flight > 0 and self.timewarn and curtime - last_in_flight > self.timewarn:
+                if self.in_flight.value > 0 and self.timewarn and \
+                        curtime - self.last_in_flight > self.timewarn:
                     # report warnings if we've been waiting too long!
                     if curtime - last_in_flight_error_report > self.timewarn:
                         self.logger.warning('Most recent in-flight packet over %d seconds old, ' \
-                                            '%d outstanding!' % (curtime - last_in_flight,
-                                                                 self.in_flight))
+                                            '%d outstanding!' % (curtime - self.last_in_flight,
+                                                                 self.in_flight.value))
                         last_in_flight_error_report = curtime
 
-                if self.in_flight != 0 and not self._stop.is_set() and self.timeout and \
-                       curtime - last_in_flight > self.timeout:
+                if self.in_flight.value != 0 and not self._stop.is_set() and \
+                        self.timeout and (curtime - self.last_in_flight) > self.timeout:
                     break
 
             # go is clear and none in_flight, stop all analyzers
@@ -248,7 +259,8 @@ class Analyzer(Process):
     .cleanup() and set the 'name' attr.
     """
     name = "Analyzer Base Class"
-    def __init__(self, inQ, outQ, debug=False, trace=False, queue_wait_sleep=1):
+    def __init__(self, inQ, outQ, debug=False, trace=False,
+                 in_flight=None, queue_wait_sleep=1):
         """
         Sets up an inQ, outQ
         """
@@ -257,8 +269,17 @@ class Analyzer(Process):
         self.outQ = outQ
         self.trace = trace
         self.queue_wait_sleep = queue_wait_sleep
+        self.in_flight = in_flight
 
         assert float(queue_wait_sleep) > 0
+
+        assert hasattr(in_flight, 'value')
+        assert hasattr(in_flight, 'acquire')
+        assert hasattr(in_flight, 'release')
+
+    def prepare_process(self):
+        super(Analyzer, self).prepare_process()
+        self.logger = logging.getLogger("PyCrawler.Analyzer")
 
     def run(self):
         """
@@ -281,10 +302,11 @@ class Analyzer(Process):
                 # we're sending things we intended to send.
                 if not isinstance(yzable, Analyzable):
                     self.logger.error('Expected instance of Analyzable(), got %r' % yzable)
-                    continue
+                    yzable = None
 
                 try:
-                    yzable = self.analyze(yzable)
+                    if yzable is not None:
+                        yzable = self.analyze(yzable)
                 except Exception, exc:
                     multi_syslog(
                         msg="analyze failed on: %s%s" % ( \
@@ -292,6 +314,16 @@ class Analyzer(Process):
                             hasattr(yzable, "relurl") and yzable.relurl or ""),
                         exc=exc,
                         logger=self.logger.warning)
+
+                # Drop yzable on request of analyzer.
+                if yzable is None:
+                    self.in_flight.acquire()
+                    self.in_flight -= 1
+                    self.in_flight.release()
+
+                    self.logger.debug("Dropped yzable.")
+                    continue
+
                 # this blocks when processes later in the chain block
                 initial_block = time()
                 last_blocked = initial_block
