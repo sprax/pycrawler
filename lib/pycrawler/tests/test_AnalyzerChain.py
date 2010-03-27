@@ -15,14 +15,22 @@ from StringIO import StringIO
 import logging
 from logging import getLogger, StreamHandler
 
-from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo, analyzer_chain, \
-     SpeedDiagnostics
+from PyCrawler import AnalyzerChain, Analyzer, FetchInfo, GetLinks, LogInfo, \
+    analyzer_chain, SpeedDiagnostics
+
+Analyzable = analyzer_chain.Analyzable
 
 import multiprocessing
 from time import sleep, time
 from signal import signal, alarm, SIGALRM, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM, SIGPIPE, SIG_IGN
 
 from nose.tools import raises
+
+class AnalyzableString(Analyzable):
+    __slots__ = ['str']
+
+    def __str__(self):
+        return self.str
 
 class BrokenAnalyzer(Analyzer):
     name = "BrokenAnalyzer"
@@ -66,25 +74,28 @@ def test_sleeping_analyzer_longqueue():
     """
     test_sleeping_analyzer(qlen=5)
 
-def test_sleeping_analyzer(qlen=1):
+def test_sleeping_analyzer(qlen=1, ):
     """
     Test to make sure queue stall code works.
     """
-    timeout = 2
+    start = time()
+
+    analyzer_timeout = 2
 
     class SleepingAnalyzer(Analyzer):
-        TIMEOUT = timeout+2
+        TIMEOUT = analyzer_timeout+2
         def analyzer(self, yzable):
             sleep(self.TIMEOUT)
             return yzable
 
     class LongSleepingAnalyzer(SleepingAnalyzer):
-        TIMEOUT = timeout+3
+        TIMEOUT = analyzer_timeout+3
 
     # FIXME: test that this fires off warning log.
 
     # keep queue short to test stalls.
-    ac = AnalyzerChain(debug=True, timewarn=timeout/2.0, timeout=timeout, qlen=qlen,
+    ac = AnalyzerChain(debug=True, timewarn=analyzer_timeout/2.0,
+                       timeout=analyzer_timeout, qlen=qlen,
                        queue_wait_sleep=0.01)
 
     # Have various sleep states to test queue stalls.
@@ -94,10 +105,10 @@ def test_sleeping_analyzer(qlen=1):
     ac.start()
 
     try:
-        ac.inQ.put('Analyzable string')
-        ac.inQ.put('Analyzable string')
+        ac.inQ.put(AnalyzableString('Analyzable string'))
+        ac.inQ.put(AnalyzableString('Analyzable string'))
 
-        sleep(timeout)
+        sleep(analyzer_timeout)
 
         for i in range(10):
             actives = multiprocessing.active_children()
@@ -113,8 +124,13 @@ def test_sleeping_analyzer(qlen=1):
         # FIXME: test logs!!
     finally:
         ac.stop()
-        while multiprocessing.active_children():
-            sleep(0.1)
+        for i in range(20):
+            if multiprocessing.active_children():
+                sleep(0.1)
+        for p in multiprocessing.active_children():
+            try:
+                p.terminate()
+            except: pass
 
 def test_speed_diagnostics():
     """ Ensure that SpeedDiagnostics properly diagnoses speed. """
@@ -157,8 +173,13 @@ def test_speed_diagnostics():
             raise Exception("SpeedDiagnostics analyzer doesn't die!")
     finally:
         ac.stop()
-        while multiprocessing.active_children():
-            sleep(0.1)
+        for i in range(20):
+            if multiprocessing.active_children():
+                sleep(0.1)
+        for p in multiprocessing.active_children():
+            try:
+                p.terminate()
+            except: pass
 
     #loghandler.flush()
     #loglines = logstring.getvalue().split('\n')
@@ -234,8 +255,13 @@ def test_analyzer(with_broken_analyzer=False, timeout=10):
             raise Exception("Failed after %d seconds" % timeout)
     finally:
         ac.stop()
-        while multiprocessing.active_children():
-            sleep(0.1)
+        for i in range(20):
+            if multiprocessing.active_children():
+                sleep(0.1)
+        for p in multiprocessing.active_children():
+            try:
+                p.terminate()
+            except: pass
 
 if __name__ == "__main__":
     # run tests
