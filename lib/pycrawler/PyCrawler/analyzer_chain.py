@@ -192,9 +192,11 @@ class AnalyzerChain(Process):
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
-                if self.in_flight == 0:
-                    sleep(self.queue_wait_sleep)
-                elif self.timewarn and curtime - last_in_flight > self.timewarn:
+                # FIXME: we may not want to sleep if things are in-flight
+                # and we have successfully popped an item.  But we want to
+                # ensure we don't spin here.
+                sleep(self.queue_wait_sleep)
+                if self.in_flight > 0 and self.timewarn and curtime - last_in_flight > self.timewarn:
                     # report warnings if we've been waiting too long!
                     if curtime - last_in_flight_error_report > self.timewarn:
                         self.logger.warning('Most recent in-flight packet over %d seconds old, ' \
