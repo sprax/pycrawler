@@ -10,6 +10,7 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import Queue
+from ctypes import sizeof  # For checking overflow of multiprocessing.Value
 import logging
 import traceback
 import multiprocessing
@@ -112,6 +113,11 @@ class AnalyzerChain(Process):
         self._yzers.append((analyzer, copies, args, kwargs))
 
     def enqueue_yzable(self, queue, yzable):
+        """
+        Try to enqueue item, emptying items that are finished analyzing if the queue
+        is full so that it get room again.
+        """
+
         # We need to try to empty the queue as we put new items in,
         # otherwise a deadlock is possible.
         while not self._stop.is_set():
@@ -121,8 +127,12 @@ class AnalyzerChain(Process):
                 # above, as if _go.is_set() hits,
                 # we would lose the in-flight packet.
                 self.in_flight.acquire()
-                self.in_flight.value += 1
-                self.in_flight.release()
+                try:
+                    # Ensure the integer will not overflow.
+                    assert self.in_flight.value < (2**(sizeof(self.in_flight.get_obj())*8 - 1) - 1)
+                    self.in_flight.value += 1
+                finally:
+                    self.in_flight.release()
 
                 self.last_in_flight = time()
                 break
