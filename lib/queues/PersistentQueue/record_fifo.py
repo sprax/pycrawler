@@ -37,6 +37,6 @@ class RecordFIFO(RecordFactory, FIFO):
         "uses next() line from FIFO to return deserialized record"
         return self.loads(FIFO.next(self))
 
-    def get(self):
+    def get(self, block=True, timeout=None):
         "gets line from FIFO and returns deserialized record"
-        return self.loads(FIFO.get(self))
+        return self.loads(FIFO.get(self, block=block, timeout=timeout))
