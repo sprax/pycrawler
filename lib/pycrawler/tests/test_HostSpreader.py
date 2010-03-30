@@ -57,7 +57,7 @@ class TestHostSpreader(object):
                 assert url in unseen_url_set
                 unseen_url_set.remove(url)
 
-    def test_host_spreader(self, with_broken_analyzer=False, timeout=20):
+    def test_host_spreader(self, with_broken_analyzer=False, timeout=30):
         """ Ensure host spreader works correctly. """
 
         # FIXME: why does this take longer than 10 seconds?!
