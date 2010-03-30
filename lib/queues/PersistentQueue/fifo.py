@@ -123,10 +123,10 @@ class FIFO(BaseFIFO):
                 raise
 
         # acquire mutex to protect on-disk state files
-        self._mutex = Mutex(os.path.join(data_path, "lock_file"))
-        acquired = self._mutex.acquire(block=False)
-        if not acquired:
-            raise Exception("failed to acquire mutex: %s" % self._data_path)
+        #self._mutex = Mutex(os.path.join(data_path, "lock_file"))
+        #acquired = self._mutex.acquire(block=False)
+        #if not acquired:
+        #    raise Exception("failed to acquire mutex: %s" % self._data_path)
 
         super(FIFO, self).__init__()
 
@@ -140,7 +140,7 @@ class FIFO(BaseFIFO):
 
     def close(self):
         super(FIFO, self).close()
-        self._mutex.release()
+        #self._mutex.release()
 
     def empty(self):
         """ Returns True if queue is empty, False otherwise. """
