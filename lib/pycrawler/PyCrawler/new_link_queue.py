@@ -39,6 +39,25 @@ class URLChecker(Analyzer):
             self.logger.debug('Newly added to database: %r' % yzable)
             return yzable
 
+class HostWhitelist(Analyzer):
+    """ Ensures that host is on whitelist, or rejects URL. """
+
+    name = "HostWhitelist"
+
+    def __init__(self, inQ, outQ, whitelist=None, **kwargs):
+        super(HostWhitelist, self).__init__(inQ, outQ, **kwargs)
+        self.whitelist = frozenset(l.strip() for l in open(whitelist))
+
+    def analyze(self, yzable):
+        assert isinstance(yzable, FetchInfo)
+
+        hostname = yzable.hostkey.rsplit('/')
+        if hostname in self.whitelist:
+            return yzable
+        else:
+            return None
+
+
 class HostBudgetHash(dict):
     """
     map from hostnames to budgets.
@@ -152,8 +171,11 @@ def init_host_queues(topdir, num=10):
 
     return topdir
 
-def get_new_link_queue_analyzerchain(debug = None, qdir = 'host_queues',
-                                     dbname = 'urlchecker.db'):
+def get_new_link_queue_analyzerchain(debug = None,
+                                     qdir = 'host_queues',
+                                     dbname = 'urlchecker.db',
+                                     whitelist = 'whitelist.txt',
+                                     ):
 
     def return_one(*args, **kwargs):
         """ For host budgets, max one url from each host per queue. """
@@ -162,6 +184,7 @@ def get_new_link_queue_analyzerchain(debug = None, qdir = 'host_queues',
     try:
         ac = AnalyzerChain(debug=debug)
         # FIXME: move configuration values to config file
+        ac.append(HostWhitelist, 1, kwargs={'whitelist': whitelist})
         ac.append(URLChecker, 1, kwargs={'dbname': dbname})
         ac.append(HostSpreader, 1, kwargs={'qdir': init_host_queues(qdir),
                                            'host_budget': return_one})
