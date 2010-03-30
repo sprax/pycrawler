@@ -57,6 +57,10 @@ class BaseFIFO(object):
         """ Return False as queue is never full. """
         return False
 
+    def get_nowait(self):
+        """ get(block=False) """
+        return self.get(block=False)
+
     def get(self, block=False, timeout=None):
         """
         Syncs the head and then returns the value that is presently at
