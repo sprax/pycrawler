@@ -102,7 +102,7 @@ class AnalyzerChain(Process):
         self.in_flight.acquire()
         val = False
         try:
-            val = (self.in_flight.value == 0) and self.inQ.empty()
+            val = (self.in_flight.value == 0) and self.inQ.qsize() == 0
         finally:
             self.in_flight.release()
         return val
