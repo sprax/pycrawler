@@ -1,11 +1,12 @@
 
 import time
+import errno
 import socket
 import multiprocessing
 import multiprocessing.connection
 
-XmlListener = multiprocessing.connection.XmlListener
-Listener = multiprocessing.connection.Listener
+from multiprocessing.connection import address_type, XmlListener, Listener, \
+    answer_challenge, deliver_challenge, debug
 
 def Client(address, family=None, authkey=None, timeout=None):
     family = family or address_type(address)
@@ -20,6 +21,7 @@ def Client(address, family=None, authkey=None, timeout=None):
     if authkey is not None:
         answer_challenge(c, authkey)
         deliver_challenge(c, authkey)
+    return c
 
 def PipeClient(address, timeout=None):
     raise Exception, "PipeClient not implemented."
@@ -38,9 +40,9 @@ def SocketClient(address, timeout=None):
         try:
             if timeout:
                 cur_timeout = end_time - time.time()
-                if cur_timeout < 0:
+                if cur_timeout <= 0:
                     raise socket.timeout, "timed out."
-                s.settimeout(cur_timeout)
+                #s.settimeout(cur_timeout)
             s.connect(address)
         except socket.error, e:
             if e.args[0] != errno.ECONNREFUSED: # connection refused
@@ -51,6 +53,10 @@ def SocketClient(address, timeout=None):
             break
     else:
         raise
+
+    if timeout:
+        pass
+        #s.settimeout(timeout)
 
     fd = multiprocessing.connection.duplicate(s.fileno())
     conn = multiprocessing.connection._multiprocessing.Connection(fd)

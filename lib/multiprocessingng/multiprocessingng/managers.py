@@ -8,7 +8,7 @@ listener_client = {
     'xmlrpclib': (connection.XmlListener, connection.XmlClient),
     }
 
-class BaseManager(multiprocessing.BaseManager):
+class BaseManager(multiprocessing.managers.BaseManager):
     listener_client = listener_client
 
     def __init__(self, address=None, authkey=None, serializer='pickle', timeout=None):
@@ -30,7 +30,7 @@ class BaseManager(multiprocessing.BaseManager):
         # method and replace it.
 
         if timeout is None:
-            timeout = self.timeout
+            timeout = self._timeout
 
         conn = self._Client(self._address, authkey=self._authkey, timeout=timeout)
         multiprocessing.managers.dispatch(conn, None, 'dummy')
