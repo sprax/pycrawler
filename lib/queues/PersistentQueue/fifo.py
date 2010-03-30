@@ -27,8 +27,7 @@ class BaseFIFO(object):
         """
         Create a FIFO of flat files in data_path/ directory.
         """
-
-        self._reader = self._data_file(mode='r')
+        self.reset()
 
     def _flush_index(self):
 
@@ -38,6 +37,10 @@ class BaseFIFO(object):
         """
         with self._index_file(mode='w') as index_file:
             index_file.write("%d %d" % (self._head, self._tail))
+
+    def reset(self):
+        """ Point at the beginning of the queue. """
+        self._reader = self._data_file(mode='r')        
 
     def put(self, line):
         """
@@ -54,7 +57,7 @@ class BaseFIFO(object):
         """ Return False as queue is never full. """
         return False
 
-    def get(self):
+    def get(self, block=False, timeout=None):
         """
         Syncs the head and then returns the value that is presently at
         the head of the FIFO *and removes* it from the FIFO.
