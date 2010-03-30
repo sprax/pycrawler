@@ -21,6 +21,7 @@ from fetcher import Fetcher
 from analyzer_chain import AnalyzerChain, Analyzer, GetLinks, LogInfo, \
     SpeedDiagnostics, FetchInfo
 from crawl_state_manager import HostRecord
+from new_link_queue import HostSpreader, URLChecker
 
 # import PyCrawler logger into package namespace.
 from _logging import logger
