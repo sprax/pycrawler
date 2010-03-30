@@ -26,10 +26,11 @@ class RecordFIFO(RecordFactory, FIFO):
 
         This then serializes record before putting it in FIFO.
         """
-        if not (values and isinstance(values, self._class)):
+        if not (len(values) == 1 and isinstance(values[0], self._class)):
             record = self.create(*values, **attrs)
         else:
-            record = values
+            # FIXME: needs test.
+            record = values[0]
         FIFO.put(self, self.dumps(record))
 
     def next(self):
