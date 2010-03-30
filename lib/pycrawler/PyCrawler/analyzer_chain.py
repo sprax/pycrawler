@@ -99,7 +99,10 @@ class AnalyzerChain(Process):
         assert float(queue_wait_sleep) > 0
 
     def bored(self):
-        return self.in_flight.value == 0 and self.inQ.empty()
+        self.in_flight.acquire()
+        val = self.in_flight.value and self.inQ.empty()
+        self.in_flight.release()
+        return val
 
     def prepare_process(self):
         super(AnalyzerChain, self).prepare_process()
@@ -302,9 +305,10 @@ class Analyzer(Process):
 
         assert float(queue_wait_sleep) > 0
 
-        assert hasattr(in_flight, 'value')
-        assert hasattr(in_flight, 'acquire')
-        assert hasattr(in_flight, 'release')
+        if in_flight is not None:
+            assert hasattr(in_flight, 'value')
+            assert hasattr(in_flight, 'acquire')
+            assert hasattr(in_flight, 'release')
 
     def prepare_process(self):
         super(Analyzer, self).prepare_process()
@@ -346,9 +350,10 @@ class Analyzer(Process):
 
                 # Drop yzable on request of analyzer.
                 if yzable is None:
-                    self.in_flight.acquire()
-                    self.in_flight.value -= 1
-                    self.in_flight.release()
+                    if self.in_flight is not None:
+                        self.in_flight.acquire()
+                        self.in_flight.value -= 1
+                        self.in_flight.release()
 
                     self.logger.debug("Dropped yzable.")
                     continue
