@@ -198,6 +198,14 @@ def test_speed_diagnostics():
     #else:
     #    raise Exception("Didn't find SpeedDiagnostics log!\n%s" % loglines)
 
+def test_zero_copyes():
+    """
+    Verify that appending a non-analyzer to an analyzer chain produces the proper exception.
+    """
+    ac = AnalyzerChain(debug=True, queue_wait_sleep=0.01)
+    ac.append(LogInfo, 0)
+    assert ac._yzers == []
+
 @raises(analyzer_chain.InvalidAnalyzer)
 def test_non_analyzer():
     """
