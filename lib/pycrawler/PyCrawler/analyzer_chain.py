@@ -330,7 +330,7 @@ class Analyzer(Process):
                 # Drop yzable on request of analyzer.
                 if yzable is None:
                     self.in_flight.acquire()
-                    self.in_flight -= 1
+                    self.in_flight.value -= 1
                     self.in_flight.release()
 
                     self.logger.debug("Dropped yzable.")
