@@ -42,11 +42,15 @@ class TestHostSpreader(object):
         self.whitelist.close()
         self.dbname.close()
 
-    def check_seen(self, urls):
+    def check_seen(self, urls, reverse=False):
         """ Ensure that all urls in urls are in the urlseen database. """
         urlseen = SetDB(self.dbname.name)
-        for url in urls:
-            assert url in urlseen
+        if reverse:
+            for url in urls:
+                assert url not in urlseen
+        else:
+            for url in urls:
+                assert url in urlseen
 
     def check_queues(self, urls):
         """ make sure queues have correct data. """
@@ -63,10 +67,8 @@ class TestHostSpreader(object):
                 assert url in unseen_url_set
                 unseen_url_set.remove(url)
 
-    def test_host_spreader(self, with_broken_analyzer=False, timeout=30):
+    def test_host_spreader(self, with_broken_analyzer=False, timeout=5):
         """ Ensure host spreader works correctly. """
-
-        # FIXME: why does this take longer than 10 seconds?!
 
         ac = None
 
@@ -81,17 +83,21 @@ class TestHostSpreader(object):
                                               dbname = self.dbname.name,
                                               whitelist = self.whitelist.name)
 
-        hostkey = "http://www.example.com"
         text = "This is a test document." #urllib.urlopen(hostkey).read()
 
-        urls = []
+        goodurls = []
+        badurls = []
 
         try:
 
             for num in range(10):
-                urls.append(hostkey + "/%d" % num)
+                goodurls.append('http://www.example.com/%d' % num)
 
-            for url in urls:
+            # These should *not* make it past.
+            for num in range(10):
+                badurls.append('http://ftp.example.com/%d' % num)
+                    
+            for url in goodurls + badurls:
                 u = FetchInfo.create(**{
                         "url": url,
                         "depth":   0, 
@@ -105,7 +111,10 @@ class TestHostSpreader(object):
                 logging.info("waiting for children: %s" % actives)
                 if len(actives) == 0:
                     break
+                logging.info("in-flight: %d queue-size: %d" % \
+                                 (ac.in_flight.value, ac.inQ.qsize()))
                 if ac.bored():
+                    logging.info("Bored, stopping.")
                     ac.stop()
                 sleep(1)
             else:
@@ -114,12 +123,8 @@ class TestHostSpreader(object):
             ac.stop()
             for i in range(20):
                 if multiprocessing.active_children():
-                    sleep(0.1)
-            for p in multiprocessing.active_children():
-                try:
-                    p.terminate()
-                except:
-                    pass
+                    sleep(0.5)
 
-        self.check_seen(urls)
-        self.check_queues(urls)
+        self.check_seen(badurls, reverse=True)
+        self.check_seen(goodurls)
+        self.check_queues(goodurls)
