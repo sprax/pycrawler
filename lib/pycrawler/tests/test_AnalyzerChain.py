@@ -59,14 +59,13 @@ def test_no_analyzers():
     ac = AnalyzerChain(debug=True)
     ac.start()
     try:
-        sleep(1)
-        assert ac._go.is_set()
         # Give a small amount of time for it to finish
         sleep(1)
         assert not multiprocessing.active_children()
         # FIXME: test logs
-    finally:
+    except Exception:
         ac.stop()
+        raise
 
 def test_sleeping_analyzer_longqueue():
     """
@@ -108,25 +107,19 @@ def test_sleeping_analyzer(qlen=1, ):
         ac.inQ.put(AnalyzableString('Analyzable string'))
         ac.inQ.put(AnalyzableString('Analyzable string'))
 
-        sleep(analyzer_timeout)
+        ac.stop()
 
-        for i in range(10):
+        for i in range(2 * analyzer_timeout):
             actives = multiprocessing.active_children()
             logging.info("waiting for children: %s" % actives)
             if len(actives) == 0:
                 break
-            if ac.inQ.empty():
-                ac.stop()
             sleep(0.5)
         else:
             raise Exception("Sleeping analyzer doesn't die!")
 
         # FIXME: test logs!!
     finally:
-        ac.stop()
-        for i in range(20):
-            if multiprocessing.active_children():
-                sleep(0.1)
         for p in multiprocessing.active_children():
             try:
                 p.terminate()
@@ -161,6 +154,8 @@ def test_speed_diagnostics():
         u.state = 3 # rejection
         ac.inQ.put(u)
 
+        ac.stop()
+
         for i in range(5):
             actives = multiprocessing.active_children()
             logging.info("waiting for children: %s" % actives)
@@ -172,10 +167,6 @@ def test_speed_diagnostics():
         else:
             raise Exception("SpeedDiagnostics analyzer doesn't die!")
     finally:
-        ac.stop()
-        for i in range(20):
-            if multiprocessing.active_children():
-                sleep(0.1)
         for p in multiprocessing.active_children():
             try:
                 p.terminate()
@@ -250,22 +241,17 @@ def test_analyzer(with_broken_analyzer=False, timeout=10):
     try:
 
         ac.inQ.put(u)
+        ac.stop()
 
         for i in range(timeout):
             actives = multiprocessing.active_children()
             logging.info("waiting for children: %s" % actives)
             if len(actives) == 0:
                 break
-            if ac.inQ.empty():
-                ac.stop()
             sleep(1)
         else:
             raise Exception("Failed after %d seconds" % timeout)
     finally:
-        ac.stop()
-        for i in range(20):
-            if multiprocessing.active_children():
-                sleep(0.1)
         for p in multiprocessing.active_children():
             try:
                 p.terminate()

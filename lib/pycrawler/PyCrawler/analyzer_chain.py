@@ -14,12 +14,14 @@ from ctypes import sizeof  # For checking overflow of multiprocessing.Value
 import logging
 import traceback
 import multiprocessing
-from time import time, sleep
-from random import random
-from PersistentQueue import Record, b64, JSON, RecordFIFO
+from time import time
+from PersistentQueue import Record, JSON, RecordFIFO
 
 from process import Process, multi_syslog
 from url import get_links, get_parts
+
+class Canary(object):
+    pass
 
 class Analyzable(Record):
     """
@@ -98,14 +100,8 @@ class AnalyzerChain(Process):
 
         assert float(queue_wait_sleep) > 0
 
-    def bored(self):
-        self.in_flight.acquire()
-        val = False
-        try:
-            val = (self.in_flight.value == 0) and self.inQ.qsize() == 0
-        finally:
-            self.in_flight.release()
-        return val
+    def stop(self):
+        self.inQ.put(Canary())
 
     def prepare_process(self):
         super(AnalyzerChain, self).prepare_process()
@@ -138,24 +134,23 @@ class AnalyzerChain(Process):
 
         # We need to try to empty the queue as we put new items in,
         # otherwise a deadlock is possible.
-        while not self._stop.is_set():
+        while True:
             try:
                 queue.put(yzable, timeout=self.queue_wait_sleep)
                 # We must increment in_flight here, rather than
                 # above, as if _go.is_set() hits,
                 # we would lose the in-flight packet.
-                self.in_flight.acquire()
-                try:
-                    # Ensure the integer will not overflow.
-                    assert self.in_flight.value < (2**(sizeof(self.in_flight.get_obj())*8 - 1) - 1)
-                    self.in_flight.value += 1
-                finally:
-                    self.in_flight.release()
-
+                self._inc_flight()
                 self.last_in_flight = time()
                 break
             except Queue.Full:
                 pop_queue()
+
+    def _inc_flight(self):
+        self.in_flight.acquire()
+        assert self.in_flight.value < (2**(sizeof(self.in_flight.get_obj())*8 - 1) - 1)
+        self.in_flight.value += 1
+        self.in_flight.release()
 
     def run(self):
         """
@@ -191,31 +186,24 @@ class AnalyzerChain(Process):
 
             def pop_queue():
                 try:
-                    # IMPORTANT! we acquire the lock FIRST to ensure that
-                    # bored() works without races.
                     self.in_flight.acquire()
 
                     try:
-                        my_yzable = queues[-1].get_nowait()
-                        self.in_flight.value -= 1
+                        while True:
+                            my_yzable = queues[-1].get_nowait()
+                            self.in_flight.value -= 1
+                            self.total_processed += 1
                     finally:
                         self.in_flight.release()
-
-                    # delete each yzable as it exits the chain
-                    try:
-                        del(my_yzable)
-                    except Exception, exc:
-                        multi_syslog("failed to delete yzable: %s"\
-                                         % traceback.format_exc(exc),
-                                     logger=self.logger.warning)
-                    self.total_processed += 1
                     return 1
                 except Queue.Empty:
                     return 0
 
             self.last_in_flight = None
             last_in_flight_error_report = 0
-            while not self._stop.is_set() or self.in_flight.value > 0:
+            get_new = True
+
+            while get_new or self.in_flight.value > 0:
                 #syslog(
                 #    LOG_DEBUG, "%d in_flight %d ever %d inQ.qsize %s" \
                 #        % (in_flight, total_processed,
@@ -225,13 +213,24 @@ class AnalyzerChain(Process):
                 # We simply *must* always attempt to get objects from the queue if
                 # they are available.  it is never acceptable to block on putting things
                 # in the next queue, as there may be things in flight we need.
-                try:
-                    yzable = self.inQ.get(timeout=self.queue_wait_sleep)
-                except Queue.Empty:
-                    yzable = None
+
+                if get_new:
+                    try:
+                        yzable = self.inQ.get(timeout=self.queue_wait_sleep)
+                    except Queue.Empty:
+                        yzable = None
+
+                    # Always pop the queue once for good measure here.
                     pop_queue()
-                if yzable is not None:
-                    self.enqueue_yzable(queues[0], yzable, pop_queue)
+
+                    if isinstance(yzable, Canary):
+                        get_new = False
+                    elif yzable is not None:
+                        self.enqueue_yzable(queues[0], yzable, pop_queue)
+                else:
+                    pop_queue()
+
+                
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
@@ -248,7 +247,7 @@ class AnalyzerChain(Process):
                                                                  self.in_flight.value))
                         last_in_flight_error_report = curtime
 
-                if self.in_flight.value != 0 and not self._stop.is_set() and \
+                if self.in_flight.value != 0 and not get_new and \
                         self.timeout and (curtime - self.last_in_flight) > self.timeout:
                     break
 
