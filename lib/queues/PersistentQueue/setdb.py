@@ -37,9 +37,9 @@ class SetDB(object):
         try:
             with self.conn:
                 self.conn.execute("INSERT INTO keys (key) VALUES (?)", (key,))
-            return True
-        except sqlite3.IntegrityError as exc:
             return False
+        except sqlite3.IntegrityError as exc:
+            return True
 
     def __contains__(self, key):
         c = self.conn.cursor()
