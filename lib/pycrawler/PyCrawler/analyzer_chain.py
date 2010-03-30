@@ -140,7 +140,7 @@ class AnalyzerChain(Process):
         # otherwise a deadlock is possible.
         while not self._stop.is_set():
             try:
-                queue.put_nowait(yzable)
+                queue.put(yzable, timeout=self.queue_wait_sleep)
                 # We must increment in_flight here, rather than
                 # above, as if _go.is_set() hits,
                 # we would lose the in-flight packet.
@@ -155,8 +155,7 @@ class AnalyzerChain(Process):
                 self.last_in_flight = time()
                 break
             except Queue.Full:
-                if not pop_queue():
-                    sleep(self.queue_wait_sleep)
+                pop_queue()
 
     def run(self):
         """
@@ -226,12 +225,11 @@ class AnalyzerChain(Process):
                 # We simply *must* always attempt to get objects from the queue if
                 # they are available.  it is never acceptable to block on putting things
                 # in the next queue, as there may be things in flight we need.
-                pop_queue()
-
                 try:
                     yzable = self.inQ.get(timeout=self.queue_wait_sleep)
                 except Queue.Empty:
                     yzable = None
+                    pop_queue()
                 if yzable is not None:
                     self.enqueue_yzable(queues[0], yzable, pop_queue)
 
