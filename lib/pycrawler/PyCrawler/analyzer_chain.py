@@ -102,7 +102,7 @@ class AnalyzerChain(Process):
         self.in_flight.acquire()
         val = False
         try:
-            val = self.in_flight.value and self.inQ.empty()
+            val = (self.in_flight.value == 0) and self.inQ.empty()
         finally:
             self.in_flight.release()
         return val
@@ -130,7 +130,7 @@ class AnalyzerChain(Process):
             raise InvalidAnalyzer("missing name attr")
         self._yzers.append((analyzer, copies, args, kwargs))
 
-    def enqueue_yzable(self, queue, yzable):
+    def enqueue_yzable(self, queue, yzable, pop_queue):
         """
         Try to enqueue item, emptying items that are finished analyzing if the queue
         is full so that it get room again.
@@ -229,18 +229,18 @@ class AnalyzerChain(Process):
                 pop_queue()
 
                 try:
-                    yzable = self.inQ.get_nowait()
+                    yzable = self.inQ.get(timeout=self.queue_wait_sleep)
                 except Queue.Empty:
                     yzable = None
                 if yzable is not None:
-                    self.enqueue_yzable(queues[0], yzable)
+                    self.enqueue_yzable(queues[0], yzable, pop_queue)
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
                 # FIXME: we may not want to sleep if things are in-flight
                 # and we have successfully popped an item.  But we want to
                 # ensure we don't spin here.
-                sleep(self.queue_wait_sleep)
+
                 if self.in_flight.value > 0 and self.timewarn and \
                         curtime - self.last_in_flight > self.timewarn:
                     # report warnings if we've been waiting too long!
@@ -327,9 +327,8 @@ class Analyzer(Process):
             self.logger.debug("Starting.")
             while not self._stop.is_set():
                 try:
-                    yzable = self.inQ.get_nowait()
+                    yzable = self.inQ.get(timeout=self.queue_wait_sleep)
                 except Queue.Empty:
-                    sleep(self.queue_wait_sleep)
                     continue
                 self._trace("Analyzer %s getting ready to process %s" % (type(self).__name__,
                                                                          yzable))
@@ -340,9 +339,10 @@ class Analyzer(Process):
                     self.logger.error('Expected instance of Analyzable(), got %r' % yzable)
                     yzable = None
 
+                processed_yzable = None
                 try:
                     if yzable is not None:
-                        yzable = self.analyze(yzable)
+                        processed_yzable = self.analyze(yzable)
                 except Exception, exc:
                     multi_syslog(
                         msg="analyze failed on: %s%s" % ( \
@@ -350,6 +350,11 @@ class Analyzer(Process):
                             hasattr(yzable, "relurl") and yzable.relurl or ""),
                         exc=exc,
                         logger=self.logger.warning)
+
+                # If there was an exception, drop it!
+                # Some analyzers are intended to be filters. don't let things
+                # past if they fail to work properly.
+                yzable = processed_yzable
 
                 # Drop yzable on request of analyzer.
                 if yzable is None:
@@ -366,14 +371,13 @@ class Analyzer(Process):
                 last_blocked = initial_block
                 while not self._stop.is_set():
                     try:
-                        self.outQ.put_nowait(yzable)
+                        self.outQ.put(yzable, timeout=self.queue_wait_sleep)
                         break
                     except Queue.Full:
                         cur = time()
                         if (cur - last_blocked) > 10:
                             self.logger.warning("Chain blocked for %d seconds" % (cur - initial_block))
                             last_blocked = cur
-                        sleep(self.queue_wait_sleep)
                 self._trace("Analyzer %s finished processing %s" % (type(self).__name__,
                                                                     yzable))
 
