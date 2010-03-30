@@ -19,7 +19,7 @@ import url
 from server import FetchServer, FetchClient, PORT, AUTHKEY
 from fetcher import Fetcher
 from analyzer_chain import AnalyzerChain, Analyzer, GetLinks, LogInfo, \
-    SpeedDiagnostics, FetchInfo
+    SpeedDiagnostics, FetchInfo, FetchInfoFIFO
 from crawl_state_manager import HostRecord
 from new_link_queue import HostSpreader, URLChecker
 
