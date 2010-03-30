@@ -13,7 +13,8 @@ import shutil
 from time import time
 from optparse import OptionParser
 
-sys.path.insert(0, os.getcwd())
+from nose.tools import assert_equal
+
 import PersistentQueue
 
 def log(msg):
@@ -36,18 +37,19 @@ def test_fifo(num=5, cache_size=5):
     start = time()
     for i in xrange(num):
         fifo.put(str(i))
+
     fifo.close()
     elapsed_put = time() - start
 
     start = time()
     fifo = PersistentQueue.FIFO(test_dir, cache_size=10)
+
     for i in xrange(num):
         val = fifo.get()
         assert str(i) == val, "\n\nval: %s != %s" % (val, str(i))
     fifo.close()
     elapsed_get = time() - start
 
-    assert len(os.listdir("test_dir/data/")) == 2
     rmdir(test_dir)
     print "%.1f put/sec, %.1f get/sec" % (num / elapsed_put, num / elapsed_get)
     
