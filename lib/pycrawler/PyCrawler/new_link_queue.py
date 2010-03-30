@@ -51,7 +51,7 @@ class HostWhitelist(Analyzer):
     def analyze(self, yzable):
         assert isinstance(yzable, FetchInfo)
 
-        hostname = yzable.hostkey.rsplit('/')
+        hostname = yzable.hostkey.rsplit('/')[-1]
         if hostname in self.whitelist:
             return yzable
         else:
