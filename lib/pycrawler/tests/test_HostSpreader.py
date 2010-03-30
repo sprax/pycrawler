@@ -18,15 +18,20 @@ class TestHostSpreader(object):
     
     def setUp(self):
         self.dbname = tempfile.NamedTemporaryFile(prefix=__name__ + '-urlchecker.', suffix='.db')
+        self.whitelist = tempfile.NamedTemporaryFile(prefix=__name__ + '-whitelist.', suffix='.txt')
+
+        print >>self.whitelist, "www.example.com"
+        self.whitelist.flush()
+
         self.qdir = tempfile.mkdtemp(prefix=__name__ + '.', suffix='.queue')
-        self.passed = True
-        self.tearDown()
         self.passed = False
         self.dbname.delete = False
+
 
     def tearDown(self):
         if self.passed:
             self.dbname.delete = True
+            self.whitelist.delete = True
 
             try:
                 shutil.rmtree(self.qdir)
@@ -34,6 +39,7 @@ class TestHostSpreader(object):
                 if exc.errno != errno.ENOENT:
                     raise
 
+        self.whitelist.close()
         self.dbname.close()
 
     def check_seen(self, urls):
@@ -72,7 +78,8 @@ class TestHostSpreader(object):
             signal(sig, stop)
 
         ac = get_new_link_queue_analyzerchain(qdir = self.qdir, debug=True,
-                                              dbname = self.dbname.name)
+                                              dbname = self.dbname.name,
+                                              whitelist = self.whitelist.name)
 
         hostkey = "http://www.example.com"
         text = "This is a test document." #urllib.urlopen(hostkey).read()
