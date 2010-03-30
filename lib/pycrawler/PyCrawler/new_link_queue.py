@@ -76,6 +76,11 @@ class HostSpreader(Analyzer):
 
         for fetch_rec in iter(q):
             h[fetch_rec.hostkey] = h.get(fetch_rec.hostkey, 0) + 1
+
+        self.logger.debug('load_budget_hash found %d hosts, '
+                          'minimum %d to maximum %d occurences per host' % \
+                              (len(h.keys()), min(h.values() or [0]), max(h.values() or [0])))
+
         return h
 
     def find_queues(self):
