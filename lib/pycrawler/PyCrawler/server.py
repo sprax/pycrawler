@@ -14,7 +14,8 @@ __version__ = "0.1"
 
 import logging
 import multiprocessing
-import multiprocessing.managers
+import multiprocessingng
+import multiprocessingng.managers
 from copy import copy
 from time import time, sleep
 
@@ -27,7 +28,7 @@ PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"
 
 class FetchServer(Process):
-    class ManagerClass(multiprocessing.managers.BaseManager):
+    class ManagerClass(multiprocessingng.managers.BaseManager):
         pass
 
     def __init__(self, go=None, address=("", PORT), authkey=AUTHKEY, debug=False):
@@ -207,7 +208,7 @@ class FetchClient(object):
     TODO: can this be a subclass of BaseManager?  Can this be cleaner?
     """
     def __init__(self, address=("", PORT), authkey=AUTHKEY):
-        class LocalFetchManager(multiprocessing.managers.BaseManager):
+        class LocalFetchManager(multiprocessingng.managers.BaseManager):
             pass
         LocalFetchManager.register("put")
         LocalFetchManager.register("stop")
@@ -216,7 +217,7 @@ class FetchClient(object):
         LocalFetchManager.register("reload")
         LocalFetchManager.register("qsize")
         
-        self.fm = LocalFetchManager(address, authkey)
+        self.fm = LocalFetchManager(address, authkey, timeout=1)
         self.fm.connect()
         self.stop = self.fm.stop
         self.set_config = self.fm.set_config
