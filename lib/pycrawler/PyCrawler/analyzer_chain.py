@@ -16,7 +16,7 @@ import traceback
 import multiprocessing
 from time import time, sleep
 from random import random
-from PersistentQueue import Record, b64, JSON
+from PersistentQueue import Record, b64, JSON, RecordFIFO
 
 from process import Process, multi_syslog
 from url import get_links, get_parts
@@ -68,6 +68,14 @@ class FetchInfo(Analyzable):
     def __repr__(self):
         args = ', '.join('%s=%r' % (k, v) for k, v in self._items() if k != 'data')
         return '%s(%s)' % (type(self).__name__, args)
+
+class FetchInfoFIFO(RecordFIFO):
+    """ Convenience class for a FIFO of FetchInfo. """
+    def __init__(self, data_path, **kwargs):
+        super(FetchInfoFIFO, self).__init__(record_class=FetchInfo,
+                                            template=FetchInfo_template,
+                                            data_path=data_path,
+                                            **kwargs)
 
 class AnalyzerChain(Process):
     name = "AnalyzerChain"

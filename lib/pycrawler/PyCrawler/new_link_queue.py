@@ -2,8 +2,8 @@
 import os
 import errno
 
-from analyzer_chain import Analyzer, AnalyzerChain, FetchInfo, FetchInfo_template
-from PersistentQueue import SetDB, RecordFIFO
+from analyzer_chain import Analyzer, AnalyzerChain, FetchInfo, FetchInfoFIFO
+from PersistentQueue import SetDB
 
 class URLChecker(Analyzer):
     """ Checks if we know about the URL.
@@ -87,9 +87,7 @@ class HostSpreader(Analyzer):
         for i in os.listdir(self.qdir):
             path = os.path.join(self.qdir, i)
             if os.path.isdir(path):
-                yield RecordFIFO(FetchInfo,
-                                 FetchInfo_template,
-                                 path)
+                yield FetchInfoFIFO(path)
 
     def initialize_queues(self):
         """ Find all queues, and initialize them. """
