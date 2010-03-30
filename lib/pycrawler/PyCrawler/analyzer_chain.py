@@ -100,8 +100,11 @@ class AnalyzerChain(Process):
 
     def bored(self):
         self.in_flight.acquire()
-        val = self.in_flight.value and self.inQ.empty()
-        self.in_flight.release()
+        val = False
+        try:
+            val = self.in_flight.value and self.inQ.empty()
+        finally:
+            self.in_flight.release()
         return val
 
     def prepare_process(self):
