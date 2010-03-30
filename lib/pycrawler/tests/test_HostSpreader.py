@@ -106,6 +106,8 @@ class TestHostSpreader(object):
                         }) 
                 ac.inQ.put(u)
 
+            ac.stop()
+
             for i in range(timeout):
                 actives = multiprocessing.active_children()
                 logging.info("waiting for children: %s" % actives)
@@ -113,9 +115,6 @@ class TestHostSpreader(object):
                     break
                 logging.info("in-flight: %d queue-size: %d" % \
                                  (ac.in_flight.value, ac.inQ.qsize()))
-                if ac.bored():
-                    logging.info("Bored, stopping.")
-                    ac.stop()
                 sleep(1)
             else:
                 raise Exception("Failed after %d seconds" % timeout)
