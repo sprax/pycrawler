@@ -16,7 +16,7 @@ import traceback
 import multiprocessing
 from time import time, sleep
 from random import random
-from PersistentQueue import Record
+from PersistentQueue import Record, b64, JSON
 
 from process import Process, multi_syslog
 from url import get_links, get_parts
@@ -40,15 +40,16 @@ class Analyzable(Record):
 class InvalidAnalyzer(Exception):
     pass
 
+FetchInfo_template = (str, str, int, int, int, int, JSON, int, int, JSON)
 class FetchInfo(Analyzable):
     """
     >>> FetchInfo.create(url='http://foo')
-    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo', relurl='/', last_modified=None, http_response=None)
+    FetchInfo(hostkey='http://foo', relurl='/', depth=None, start=None, end=None, state=None, links=[], last_modified=None, http_response=None)
     >>> FetchInfo.create(url='http://foo:7')
-    FetchInfo(depth=None, start=None, end=None, state=None, links=[], hostkey='http://foo:7', relurl='/', last_modified=None, http_response=None)
+    FetchInfo(hostkey='http://foo:7', relurl='/', depth=None, start=None, end=None, state=None, links=[], last_modified=None, http_response=None)
     """
-    __slots__ = ('data', 'depth', 'start', 'end', 'state', 'links',
-                 'hostkey', 'relurl', 'last_modified', 'http_response')
+    __slots__ = ('hostkey', 'relurl', 'depth', 'start', 'end', 'state', 'links',
+                 'last_modified', 'http_response', 'data')
 
     @classmethod
     def create(self, url=None, raw_data=None, depth=None, start=None, end=None,
@@ -88,6 +89,9 @@ class AnalyzerChain(Process):
         self.last_in_flight = 0
 
         assert float(queue_wait_sleep) > 0
+
+    def bored(self):
+        return self.in_flight.value == 0 and self.inQ.empty()
 
     def prepare_process(self):
         super(AnalyzerChain, self).prepare_process()
@@ -174,10 +178,15 @@ class AnalyzerChain(Process):
 
             def pop_queue():
                 try:
-                    my_yzable = queues[-1].get_nowait()
+                    # IMPORTANT! we acquire the lock FIRST to ensure that
+                    # bored() works without races.
                     self.in_flight.acquire()
-                    self.in_flight.value -= 1
-                    self.in_flight.release()
+
+                    try:
+                        my_yzable = queues[-1].get_nowait()
+                        self.in_flight.value -= 1
+                    finally:
+                        self.in_flight.release()
 
                     # delete each yzable as it exits the chain
                     try:
