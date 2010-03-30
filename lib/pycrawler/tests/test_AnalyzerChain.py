@@ -252,10 +252,7 @@ def test_analyzer(with_broken_analyzer=False, timeout=10):
         else:
             raise Exception("Failed after %d seconds" % timeout)
     finally:
-        for p in multiprocessing.active_children():
-            try:
-                p.terminate()
-            except: pass
+        pass
 
 if __name__ == "__main__":
     # run tests
