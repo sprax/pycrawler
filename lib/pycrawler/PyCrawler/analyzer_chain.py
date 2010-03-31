@@ -225,12 +225,11 @@ class AnalyzerChain(Process):
 
                     if isinstance(yzable, Canary):
                         get_new = False
+                        self.logger.info("Got canary, stopping.")
                     elif yzable is not None:
                         self.enqueue_yzable(queues[0], yzable, pop_queue)
                 else:
                     pop_queue()
-
-                
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
