@@ -27,6 +27,34 @@ import url
 HostRecord = define_record("HostRecord", "next start bytes hits hostname data")
 HostRecord_template = (int, int, int, int, str, JSON)
 
+class CrawlStateAnalyzer(Analyzer):
+    name = "CrawlStateAnalyzer"
+
+    def __init__(self, inQ, outQ, linkQ=None, **kwargs):
+        super(CrawlStateAnalyzer, self).__init__(inQ, outQ, **kwargs)
+        self.linkQ = linkQ
+
+    def analyze(self, yzable):
+        """
+        Puts FetchInfo & HostRecord objects into csm_inQ.
+        
+        Get rid of data here.
+        """
+        if isinstance(yzable, FetchInfo):
+            new_yzable = copy.copy(yzable)
+            new_yzable.data = dict((k, v) for k, v in yzable.data.iteritems() \
+                                               if k != 'raw_data')
+            # We expect the URLChecker analyzer to drop this to prevent
+            # recrawl.
+            self.linkQ.put(new_yzable)
+
+            if isinstance(yzable.links, []):
+                for scheme, host, port, relurl in yzable.links:
+                    link_yzable = FetchInfo.create(url='%s://%s%s%s' % (scheme, host, port and ':%s' % port or '',
+                                                                   relurl or ''))
+                    self.linkQ.put(link_yzable)
+        return yzable
+
 class CrawlStateManager(Process):
     """Organizes crawler's state into periodically sorted flat files
 
@@ -59,7 +87,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
     #RECHECK_ROBOTS_INTERVAL = 2 * DAYS
 
     name = "CrawlStateManager"
-    def __init__(self, go, id, inQ, outQ, config):
+    def __init__(self, go, id, fetchInfoQ, outQ, config):
         """
         Setup a go Event
         """
@@ -67,7 +95,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
 
         debug = config.get("debug", None)
         Process.__init__(self, go, debug=debug)
-        self.inQ = inQ
+        self.fetchInfoQ = fetchInfoQ
         self.outQ = outQ
         self.config = config
         self.hosts_in_flight = None
@@ -79,7 +107,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
 
     def run(self):
         """
-        Moves records out of inQ and into ...
+        Moves records out of fetchInfoQ and into ...
         """
         self.prepare_process()
 
@@ -88,7 +116,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
                 self.logger.debug('CrawlStateManager loop.')
                 # do something to put hosts into packed_hostQ for the fetchers
                 try:
-                    info = self.inQ.get_nowait()
+                    info = self.fetchInfoQ.get_nowait()
                     self.logger.debug('Got %r' % info)
                 except Queue.Empty:
                     sleep(1)
@@ -99,7 +127,7 @@ with each host's FIFOs, which includes applying RobotFileParser.
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
         finally:
-            self.inQ.close()
+            self.fetchInfoQ.close()
             self.logger.debug("Exiting.")
         try:
             self.cleanup_process()
@@ -107,31 +135,22 @@ with each host's FIFOs, which includes applying RobotFileParser.
             multi_syslog(exc, logger=self.logger.warning)
 
 
-    def get_analyzerchain(self):
+    def get_analyzerchain(self, linkQ):
         """
         Creates an AnalyzerChain with these analyzers:
 
             GetLinks (10x)
-            CrawlStateAnalyzer (with a handle to self.inQ)
+            CrawlStateAnalyzer (with a handle to self.fetchInfoQ)
             SpeedDiagnostics
 
         This starts the AnalyzerChain and returns it.
         """
-        class CrawlStateAnalyzer(Analyzer):
-            name = "CrawlStateAnalyzer"
-            csm_inQ = self.inQ
-            def analyze(self, yzable):
-                """
-                Puts FetchInfo & HostRecord objects into csm_inQ
-                """
-                self.csm_inQ.put(yzable)
-                return yzable
         try:
             ac = AnalyzerChain(self._go, self._debug)
             ac.append(LogInfo, 1)
             ac.append(GetLinks, 10)
-            ac.append(CrawlStateAnalyzer, 1)
             ac.append(SpeedDiagnostics, 1)
+            ac.append(CrawlStateAnalyzer, 1, kwargs={'linkQ': linkQ})
             ac.start()
             return ac
         except Exception, exc:
