@@ -106,6 +106,7 @@ def test_sleeping_analyzer(qlen=1, ):
     try:
         ac.inQ.put(AnalyzableString('Analyzable string'))
         ac.inQ.put(AnalyzableString('Analyzable string'))
+        ac.inQ.put(AnalyzableString('Analyzable string'))
 
         ac.stop()
 
