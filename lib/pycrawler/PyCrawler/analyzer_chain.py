@@ -146,6 +146,10 @@ class AnalyzerChain(Process):
             except Queue.Full:
                 pop_queue()
 
+        # Call pop_queue exactly once on success.
+        pop_queue()
+
+
     def _inc_flight(self):
         self.in_flight.acquire()
         assert self.in_flight.value < (2**(sizeof(self.in_flight.get_obj())*8 - 1) - 1)
@@ -184,20 +188,32 @@ class AnalyzerChain(Process):
             self.logger.debug("Starting main loop")
             yzable = None
 
-            def pop_queue():
-                try:
-                    self.in_flight.acquire()
+            def pop_queue(timeout=None):
+                """
+                Pop as many items as we can off of the queue of finished items,
+                without waiting.
 
-                    try:
-                        while True:
-                            my_yzable = queues[-1].get_nowait()
-                            self.in_flight.value -= 1
-                            self.total_processed += 1
-                    finally:
+                If timeout a positive integer, then wait up to timeout seconds
+                for the first item, and get the rest without waiting.
+                """
+                
+                block = bool(timeout)
+                try:
+                    while True:
+                        my_yzable = queues[-1].get(block=block, timeout=timeout)
+
+                        # After a single success, we become non-blocking and only
+                        # eat available items.
+                        timeout = None
+                        block = False
+
+                        self.in_flight.acquire()
+                        self.in_flight.value -= 1
                         self.in_flight.release()
-                    return 1
+
+                        self.total_processed += 1
                 except Queue.Empty:
-                    return 0
+                    pass
 
             self.last_in_flight = None
             last_in_flight_error_report = 0
@@ -220,16 +236,13 @@ class AnalyzerChain(Process):
                     except Queue.Empty:
                         yzable = None
 
-                    # Always pop the queue once for good measure here.
-                    pop_queue()
-
                     if isinstance(yzable, Canary):
                         get_new = False
                         self.logger.info("Got canary, stopping.")
                     elif yzable is not None:
                         self.enqueue_yzable(queues[0], yzable, pop_queue)
                 else:
-                    pop_queue()
+                    pop_queue(timeout=self.queue_wait_sleep)
 
                 # if none are in_flight, then we can sleep here
                 curtime = time()
