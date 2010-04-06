@@ -41,8 +41,7 @@ class Process(multiprocessing.Process):
 
         if debug is not None:
             self._debug = debug
-        if not hasattr(self, "name"):
-            self.name = "Unnamed"
+        assert hasattr(self, "name")
         multiprocessing.Process.__init__(self, name=self.name)
         self._go = go or multiprocessing.Event()
         self._stop = _stop or multiprocessing.Event()
