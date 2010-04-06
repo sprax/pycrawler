@@ -36,10 +36,7 @@ import pycurl
 import logging
 from time import time, sleep
 from signal import signal, SIGPIPE, SIG_IGN
-try:
-    from cStringIO import StringIO
-except:
-    from StringIO  import StringIO
+from cStringIO import StringIO
 
 from process import Process, multi_syslog
 from url import get_parts
@@ -156,24 +153,7 @@ the input to an AnalyzerChain.
         self.m.handles = []
         self.logger.debug("Allocating %d Curl objects..." % self.MAX_CONNS)
         for i in range(self.MAX_CONNS):
-            try:
-                c = pycurl.Curl()
-            except Exception, e:
-                # This has been observed to fail after exceeding
-                # FETCHES_TO_LIVE and trying to dereference all the
-                # libcurl objects.  Evidently that does not work.
-                # Fortunately, when pycurl is running in its own
-                # process without any threads, sustained fetching of
-                # hundreds of thousands has been observed without
-                # segfaulting or GILs,
-                self.logger.error("failed pycurl.Curl(): %s" % str(e))
-
-                # When this fails, curl is in an indeterminate state,
-                # we need to stop.  This looks suspiciously like the sort
-                # of things that connection re-use bugs might have caused,
-                # but working around their symptoms doesn't make it not
-                # corrupt the heap.
-                raise
+            c = pycurl.Curl()
 
             c.fp = None
             c.host = None
