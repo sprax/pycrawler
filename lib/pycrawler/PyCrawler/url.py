@@ -97,6 +97,12 @@ def get_hostbin_id(hostname):
 def get_hostid_docid(scheme, hostname, port, relurl):
     """
     Generates md5 for the hostname and for the fullurl
+
+    >>> get_hostid_docid('http', 'hostname', ':25', '/bar')
+    ('0897acf49c7c1ea9f76efe59187aa046', 'd736ab54297444992517ba1b32b1052b')
+
+    >>> md5('hostname').hexdigest(), md5('http://hostname:25/bar').hexdigest()
+    ('0897acf49c7c1ea9f76efe59187aa046', 'd736ab54297444992517ba1b32b1052b')
     """
     return md5(hostname).hexdigest(), \
         md5(fullurl(scheme, hostname, port, relurl)).hexdigest()
@@ -155,6 +161,13 @@ def get_parts(url):
     return scheme, hostname, port, relurl
 
 def fullurl(scheme, hostname=None, port=None, relurl=None):
+    """
+    >>> fullurl('http', 'hostname', ':25', '/foo')
+    'http://hostname:25/foo'
+
+    >>> fullurl('http', 'hostname', port='', relurl='')
+    'http://hostname'
+    """
     if hasattr(scheme, "hostname"):
         rec = scheme
         return "".join((rec.scheme, "://", rec.hostname, rec.port, rec.relurl))
