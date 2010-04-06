@@ -56,10 +56,14 @@ class Process(multiprocessing.Process):
             import coverage
             # peek under the abstraction barrier to see if we're being coverage-tested
             if coverage.collector.Collector._collectors:
-                coverage.stop()
-                coverage._the_coverage.save()
-        except ImportError, e:
-            pass
+
+                # The next lines can never be covered while we're under code coverage,
+                # So don't print that it's not covered.
+
+                coverage.stop()                # pragma: no cover
+                coverage._the_coverage.save()  # pragma: no cover
+        except ImportError, e:                 # pragma: no cover
+            pass                               # pragma: no cover
 
     def prepare_process(self):
         """
