@@ -24,20 +24,18 @@ class TestHostSpreader(object):
         self.whitelist.flush()
 
         self.qdir = tempfile.mkdtemp(prefix=__name__ + '.', suffix='.queue')
-        self.passed = False
         self.dbname.delete = False
 
 
     def tearDown(self):
-        if self.passed:
-            self.dbname.delete = True
-            self.whitelist.delete = True
+        self.dbname.delete = True
+        self.whitelist.delete = True
 
-            try:
-                shutil.rmtree(self.qdir)
-            except OSError as exc:
-                if exc.errno != errno.ENOENT:
-                    raise
+        try:
+            shutil.rmtree(self.qdir)
+        except OSError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
 
         self.whitelist.close()
         self.dbname.close()
@@ -127,3 +125,4 @@ class TestHostSpreader(object):
         self.check_seen(badurls, reverse=True)
         self.check_seen(goodurls)
         self.check_queues(goodurls)
+
