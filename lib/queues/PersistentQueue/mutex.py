@@ -45,23 +45,23 @@ class Mutex(object):
         self._acquire_callback = acquire_callback
         self._release_callback = release_callback
         self._fh = None
+
+        parent = os.path.dirname(lock_path)
+        try:
+            os.makedirs(parent)
+        except OSError, exc:
+            # okay if other process has just created it
+            if exc.errno != errno.EEXIST:
+                raise
+
         if os.path.exists(lock_path):
             assert os.path.isfile(lock_path), \
                 "lock_path must be a regular file"
-        else:
-            parent = os.path.dirname(lock_path)
-            try:
-                os.makedirs(parent)
-            except OSError, exc:
-                # okay if other process has just created it
-                if exc.errno == errno.EEXIST:
-                    pass
-                else:
-                    raise
-            # create the file, but do not block, in case another
-            # process is doing this.
-            self.acquire(False)
-            self.release()
+
+        # create the file, but do not block, in case another
+        # process is doing this.
+        self.acquire(False)
+        self.release()
 
     def __acquire(self, block=True):
         """
