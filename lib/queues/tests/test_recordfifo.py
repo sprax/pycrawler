@@ -9,57 +9,58 @@ __version__ = "0.1"
 __maintainer__ = "John R. Frank"
 import os
 import sys
+import errno
 import shutil
 from time import time
-from optparse import OptionParser
 
-sys.path.insert(0, os.getcwd())
 from PersistentQueue import b64, Static, JSON, RecordFIFO, define_record
 
 def rmdir(dir):
-    if os.path.exists(dir):
-        try:
-            shutil.rmtree(dir)
-        except Exception, exc:
-            print "Did not rmtree the dir. " + str(exc)
+    try:
+        shutil.rmtree(dir)
+    except EnvironmentError, e:
+        if e.errno != errno.ENOENT:
+            raise
 
 MyRec = define_record("MyRec", ("next", "score", "depth", "data", "hostkey", "foo", "dog"))
-def get_fifo():
+def get_fifo(test_dir):
     "make a factory for testing"
-    return RecordFIFO.RecordFIFO(
+    return RecordFIFO(
         MyRec,
         (int, float, int, b64, Static("http://www.wikipedia.com"), Static(None), JSON),
-        test_dir, cache_size=cache_size,
+        test_dir,
         defaults = {"next": 0, "score": 0, "data": "did we survive b64ing?", "dog": {}})
 
-if __name__ == '__main__':
-    parser = OptionParser()
-    parser.add_option("-n", "--num", type=int, default=5, dest="num")
-    parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
-    (options, args) = parser.parse_args()
-    num = options.num
-    cache_size = options.cache_size
+class TestRecordFIFO(object):
+    def setUp(self):
+        pass
 
-    test_dir = "test_dir"
-    rmdir(test_dir)
+    def tearDown(self):
+        pass
 
+    def test_recordfifo(self, num=5):
+        test_dir = "test_dir"
+        rmdir(test_dir)
 
-    start = time()
-    fifo = get_fifo()
-    for i in xrange(num):
-        fifo.put(**{"depth": i})
-    fifo.close()
-    elapsed_put = time() - start
+        start = time()
+        fifo = get_fifo(test_dir)
+        for i in xrange(num):
+            fifo.put(**{"depth": i})
+            fifo.put(MyRec(next=None, score=None, depth=2*i, data=None,
+                           hostkey=None, foo=None, dog=None))
+        fifo.close()
+        elapsed_put = time() - start
 
-    start = time()
-    fifo = get_fifo()
-    for i in xrange(num):
-        val = fifo.get()
-        assert val.depth == i, "\n\nval: %s != %s" % (val, str(i))
-    fifo.close()
-    elapsed_get = time() - start
+        start = time()
+        fifo = get_fifo(test_dir)
+        for i in xrange(num):
+            val = fifo.get()
+            assert val.depth == i, "\n\nval: %s != %s" % (val, str(i))
+            val = fifo.get()
+            assert val.depth == 2*i
 
-    files = os.listdir("test_dir/data/")
-    assert len(files) == 2, str(files)
-    rmdir(test_dir)
-    print "%.1f put/sec, %.1f get/sec" % (num / elapsed_put, num / elapsed_get)
+        fifo.close()
+        elapsed_get = time() - start
+
+        rmdir(test_dir)
+        print "%.1f put/sec, %.1f get/sec" % (num / elapsed_put, num / elapsed_get)
