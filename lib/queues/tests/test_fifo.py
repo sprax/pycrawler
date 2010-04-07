@@ -10,12 +10,14 @@ __version__ = "0.1"
 import os
 import sys
 import shutil
+import tempfile
+import itertools
+import Queue
 from time import time
-from optparse import OptionParser
 
-from nose.tools import assert_equal
+from nose.tools import assert_equal, assert_raises, raises
 
-import PersistentQueue
+from PersistentQueue import FIFO
 
 def log(msg):
     print msg
@@ -28,35 +30,72 @@ def rmdir(dir):
         except Exception, exc:
             print "Did not rmtree the dir. " + str(exc)
 
-def test_fifo(num=5, cache_size=5):
-    test_dir = "test_dir"
-    rmdir(test_dir)
+class TestFIFO(object):
+    def __init__(self, num=5):
+        self.num = 5
 
-    fifo = PersistentQueue.FIFO(test_dir, cache_size=cache_size)
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp(prefix='test_fifo.')
 
-    start = time()
-    for i in xrange(num):
-        fifo.put(str(i))
+        try:
+            fifo = FIFO(self.test_dir)
 
-    fifo.close()
-    elapsed_put = time() - start
+            assert fifo.full() == False
 
-    start = time()
-    fifo = PersistentQueue.FIFO(test_dir, cache_size=10)
+            start = time()
+            for i in xrange(self.num):
+                fifo.put(str(i))
 
-    for i in xrange(num):
-        val = fifo.get()
-        assert str(i) == val, "\n\nval: %s != %s" % (val, str(i))
-    fifo.close()
-    elapsed_get = time() - start
+            fifo.close()
+        except:
+            rmdir(self.test_dir)
+            raise
 
-    rmdir(test_dir)
-    print "%.1f put/sec, %.1f get/sec" % (num / elapsed_put, num / elapsed_get)
-    
-if __name__ == '__main__':
-    parser = OptionParser()
-    parser.add_option("-n", "--num", type=int, default=5, dest="num")
-    parser.add_option("-c", "--cache_size", type=int, default=5, dest="cache_size")
-    (options, args) = parser.parse_args()
+    def cleanUp(self):
+        rmdir(self.test_dir)
 
-    test_fifo(options.num, options.cache_size)
+    def test_fifo_get(self):
+        fifo = FIFO(self.test_dir)
+
+        for i in xrange(self.num):
+            assert not fifo.empty()
+            val = fifo.get()
+            assert str(i) == val, "\n\nval: %s != %s" % (val, str(i))
+        assert fifo.empty()
+
+        assert_raises(Queue.Empty, fifo.get)
+        assert fifo.empty()
+
+        fifo.close()
+
+    def test_fifo_get_nowait(self):
+        fifo = FIFO(self.test_dir)
+
+        for i in xrange(self.num):
+            assert not fifo.empty()
+            val = fifo.get_nowait()
+            assert str(i) == val, "\n\nval: %s != %s" % (val, str(i))
+        assert fifo.empty()
+
+        assert_raises(Queue.Empty, fifo.get_nowait)
+
+        assert fifo.empty()
+
+        fifo.close()
+
+    def test_fifo_iter(self):
+        fifo = FIFO(self.test_dir)
+
+        assert not fifo.empty()
+        fifo_iter = iter(fifo)
+        for i, val in itertools.izip(xrange(self.num), fifo_iter):
+            assert str(i) == val, "\n\nval: %s != %s" % (val, str(i))
+
+        assert fifo.empty()
+
+        assert_raises(StopIteration, fifo_iter.next)
+
+        assert fifo.empty()
+
+        fifo.close()
+

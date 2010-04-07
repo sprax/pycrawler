@@ -29,15 +29,6 @@ class BaseFIFO(object):
         """
         self.reset()
 
-    def _flush_index(self):
-
-        """
-        Ensures data stored in index file matches in-memory state
-        represented by self._head and self._tail
-        """
-        with self._index_file(mode='w') as index_file:
-            index_file.write("%d %d" % (self._head, self._tail))
-
     def reset(self):
         """ Point at the beginning of the queue. """
         self._reader = self._data_file(mode='r')        

@@ -12,6 +12,7 @@ import sys
 import errno
 import shutil
 from time import time
+import itertools
 
 from PersistentQueue import b64, Static, JSON, RecordFIFO, define_record
 
@@ -53,11 +54,15 @@ class TestRecordFIFO(object):
 
         start = time()
         fifo = get_fifo(test_dir)
-        for i in xrange(num):
+        for i in xrange(num/2):
             val = fifo.get()
             assert val.depth == i, "\n\nval: %s != %s" % (val, str(i))
             val = fifo.get()
             assert val.depth == 2*i
+
+        for val1, val2, i in itertools.izip(*([iter(fifo)] * 2 + [xrange(num/2, num)])):
+            assert val1.depth == i, "\n\nval: %s != %s" % (val1, str(i))
+            assert val2.depth == 2*i
 
         fifo.close()
         elapsed_get = time() - start
