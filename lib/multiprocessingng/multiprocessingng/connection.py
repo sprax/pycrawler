@@ -26,7 +26,7 @@ def Client(address, family=None, authkey=None, timeout=None):
 def PipeClient(address, timeout=None):
     raise Exception, "PipeClient not implemented."
 
-def SocketClient(address, timeout=None):
+def SocketClient(address, timeout=5):
     '''
     Return a connection object connected to the socket given by `address`
     '''
@@ -35,7 +35,7 @@ def SocketClient(address, timeout=None):
 
     if timeout:
         end_time = time.time() + timeout
-
+    
     while 1:
         try:
             if timeout:
@@ -62,6 +62,9 @@ def SocketClient(address, timeout=None):
     conn = multiprocessing.connection._multiprocessing.Connection(fd)
     s.close()
     return conn
+
+multiprocessing.connection.SocketClient = SocketClient
+multiprocessing.connection.PipeClient = PipeClient
 
 def XmlClient(*args, **kwds):
     global xmlrpclib
