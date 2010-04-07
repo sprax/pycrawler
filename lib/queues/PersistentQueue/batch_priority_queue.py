@@ -20,9 +20,9 @@ from syslog import syslog, openlog, LOG_INFO, LOG_NOTICE, LOG_NDELAY, LOG_CONS, 
 
 from fifo import FIFO
 from mutex import Mutex
-from record_factory import RecordFactory
+from record_factory import RecordFactory, MergingRecordFactory
 
-class BatchPriorityQueue(RecordFactory):
+class BatchPriorityQueue(MergingRecordFactory):
     """
     A subclass of RecordFactory that maintains two on-disk FIFOs of
     records:
