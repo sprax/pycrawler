@@ -3,6 +3,7 @@ import os
 import errno
 
 from PyCrawler import AnalyzerChain, HostSpreader, FetchInfo, FetchInfoFIFO
+from PyCrawler.analyzer_chain import Analyzable
 from PyCrawler.new_link_queue import get_new_link_queue_analyzerchain
 from PersistentQueue import SetDB, RecordFIFO
 
@@ -88,6 +89,9 @@ class TestHostSpreader(object):
 
         try:
 
+            # Make sure that this doesn't crash the pipeline.
+            ac.inQ.put(Analyzable())
+
             for num in range(10):
                 goodurls.append('http://www.example.com/%d' % num)
 
@@ -95,7 +99,7 @@ class TestHostSpreader(object):
             for num in range(10):
                 badurls.append('http://ftp.example.com/%d' % num)
                     
-            for url in goodurls + badurls:
+            for url in (goodurls + badurls) * 2:
                 u = FetchInfo.create(**{
                         "url": url,
                         "depth":   0, 
