@@ -113,6 +113,7 @@ def define_record(typename, field_names):
             raise ValueError('Encountered duplicate field name: %r' % name)
         seen_names.add(name)
 
+    # FIXME: use type(), not exec!!
     template = """class %(typename)s(Record):
         __slots__ = %(field_names)s""" % locals()
 

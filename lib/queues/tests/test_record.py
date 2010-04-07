@@ -14,14 +14,13 @@ from PersistentQueue import define_record
 
 from nose.tools import assert_raises, raises
 
-my_Point2D = define_record('Point2D', ['x', 'y'])
-
 class TestRecordConstructor(object):
+    Point2D = define_record('Point2D', ['x', 'y'])
     def __init__(self):
-        self.cls = my_Point2D
+        self.cls = self.Point2D
 
     def test_module_name(self):
-        assert my_Point2D.__module__ == __name__
+        assert self.Point2D.__module__ == __name__
 
     @raises(TypeError)
     def test_invalid_slot(self):
@@ -44,8 +43,10 @@ class TestRecordConstructor(object):
         assert a.x == 1 and a.y == 2
 
 class TestRecordOperations(object):
+    Point2D = define_record('Point2D', ['x', 'y'])
+
     def __init__(self):
-        self.cls = my_Point2D
+        self.cls = self.Point2D
         self.a = self.cls(x=1, y=2)
         self.b = self.cls(x=100, y=200)
 
@@ -75,6 +76,28 @@ class TestRecordOperations(object):
     def test_len(self):
         assert len(self.a) == 2
         assert len(self.b) == 2
+
+    @raises(pickle.PicklingError)
+    def test_pickle_notglobal(self):
+        """ Test that if the class doesn't share a global name,
+        picklig fails."""
+
+        assert not hasattr(__name__, self.a.__class__.__name__)
+
+        s = pickle.dumps(self.a)
+        pickle.loads(s)
+
+    def test_pickle(self):
+        assert not hasattr(__name__, 'Point2D')
+
+        global Point2D
+        Point2D = self.cls
+        try:
+            s = pickle.dumps(self.a)
+            c = pickle.loads(s)
+            assert self.a == c
+        finally:
+            del Point2D
 
 class TestDefineRecord(object):
     def test_class_names(self):
