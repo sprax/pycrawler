@@ -21,7 +21,7 @@ class URLForm(TableForm):
     class fields(WidgetsList):
         url = TextField(validator=URLValidator)
 
-url_form = URLForm("url_form", action="urlq/submitseed")
+url_form = URLForm("url_form", action="/urlq/submitseed")
 
 class URLQController(BaseController):
     """
@@ -41,4 +41,6 @@ class URLQController(BaseController):
     def submitseed(self, url=None):
         fetch_client = FetchClient()
         fetch_client.add_url(url)
-        raise redirect("index")
+        # FIXME. should be relative.
+        flash('Added seed %s' % url)
+        raise redirect('/urlq')
