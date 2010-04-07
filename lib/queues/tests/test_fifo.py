@@ -8,27 +8,22 @@ __license__ = "MIT License"
 __version__ = "0.1"
 
 import os
-import sys
+import errno
 import shutil
 import tempfile
 import itertools
 import Queue
-from time import time
 
 from nose.tools import assert_equal, assert_raises, raises
 
 from PersistentQueue import FIFO
 
-def log(msg):
-    print msg
-    sys.stdout.flush()
-
 def rmdir(dir):
-    if os.path.exists(dir):
-        try:
-            shutil.rmtree(dir)
-        except Exception, exc:
-            print "Did not rmtree the dir. " + str(exc)
+    try:
+        shutil.rmtree(dir)
+    except EnvironmentError, e:
+        if e.errno != e.ENOENT:
+            raise
 
 class TestFIFO(object):
     def __init__(self, num=5):
@@ -42,7 +37,6 @@ class TestFIFO(object):
 
             assert fifo.full() == False
 
-            start = time()
             for i in xrange(self.num):
                 fifo.put(str(i))
 
