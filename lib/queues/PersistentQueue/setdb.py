@@ -1,6 +1,4 @@
 
-
-
 import sqlite3
 
 class SetDB(object):
@@ -45,7 +43,3 @@ class SetDB(object):
         c = self.conn.cursor()
         c.execute("SELECT 1 FROM keys WHERE key = ? LIMIT 1", (key,))
         return False if c.fetchone() is None else True
-
-
-        
-        
