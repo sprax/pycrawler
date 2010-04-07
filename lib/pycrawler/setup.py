@@ -35,7 +35,8 @@ Provides a web crawler.
                         'setproctitle',
                         ],
 
-      setup_requires=['coverage>=3.3', 'nose>=0.11'],
+      setup_requires=['nose>=0.11'],
+      tests_require=['coverage>=3.3'],
 
       entry_points="""
       # -*- Entry points: -*-
