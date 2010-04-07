@@ -206,6 +206,7 @@ class RecordFactory(object):
                 record.append(val)
         return self._class(*record)
 
+class MergingRecordFactor(RecordFactory):
     def mergefiles(self, file_names, keys=(0,)):
         """
         file_names must be paths to files containing the result of
