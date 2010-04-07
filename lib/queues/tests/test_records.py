@@ -20,7 +20,7 @@ from hashlib import md5
 from optparse import OptionParser
 
 import PersistentQueue
-from PersistentQueue import RecordFactory, b64, Static, JSON, insort_right
+from PersistentQueue import RecordFactory, b64, Static, JSON
 
 if __name__ == '__main__':
 

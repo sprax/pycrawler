@@ -40,25 +40,6 @@ deserialized, the value attribute of this instance is inserted into
 that field of the tuple.
 """
 
-def insort_right(sorted_list, record, key):
-    """
-    Insert 'record' while maintain sorted_list by comparing the values
-    of 'key' field and performing bisect insort algorithm.  
-
-    'key' should be an integer and is used as operator.itemgetter(key)
-    """
-    lo = 0
-    hi = len(sorted_list)
-    key = operator.itemgetter(key)
-    rec_key = key(record)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if rec_key < key(sorted_list[mid]):
-            hi = mid
-        else:
-            lo = mid + 1
-    sorted_list.insert(lo, record)
-
 class RecordFactory(object):
     """
     Provides convenience methods for definiing and managing instances

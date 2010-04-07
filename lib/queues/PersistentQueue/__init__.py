@@ -13,6 +13,6 @@ from fifo import FIFO
 from mutex import Mutex
 from record import Record, define_record
 from record_fifo import RecordFIFO
-from record_factory import RecordFactory, b64, Static, JSON, insort_right
+from record_factory import RecordFactory, b64, Static, JSON
 from batch_priority_queue import BatchPriorityQueue
 from setdb import SetDB
