@@ -1,0 +1,43 @@
+diff -ruN nose-0.11.3.orig/nose/plugins/cover.py nose-0.11.3/nose/plugins/cover.py
+--- nose-0.11.3.orig/nose/plugins/cover.py	2010-03-05 15:32:00.000000000 -0500
++++ nose-0.11.3/nose/plugins/cover.py	2010-03-30 14:02:45.000000000 -0400
+@@ -96,6 +96,10 @@
+                           dest='cover_html_dir',
+                           metavar='DIR',
+                           help='Produce HTML coverage information in dir')
++        parser.add_option('--cover-parallel', action='store_true',
++                          default=env.get('NOSE_COVER_PARALLEL', False),
++                          dest='cover_parallel',
++                          help='Use parallel coverage for multiple processes.')
+ 
+     def configure(self, options, config):
+         """
+@@ -131,6 +135,7 @@
+         if options.cover_html:
+             self.coverHtmlDir = options.cover_html_dir
+             log.debug('Will put HTML coverage report in %s', self.coverHtmlDir)
++        self.coverParallel = options.cover_parallel
+         if self.enabled:
+             self.status['active'] = True
+ 
+@@ -144,6 +149,7 @@
+         if self.coverErase:
+             log.debug("Clearing previously collected coverage statistics")
+             coverage.erase()
++        
+         coverage.exclude('#pragma[: ]+[nN][oO] [cC][oO][vV][eE][rR]')
+         coverage.start()
+ 
+@@ -154,6 +160,12 @@
+         log.debug("Coverage report")
+         import coverage
+         coverage.stop()
++        if self.coverParallel:
++            # This is new in coverage 3.3
++            if hasattr(coverage, "_the_coverage") and coverage._the_coverage and \
++                   hasattr(coverage._the_coverage, "combine"):
++                coverage._the_coverage.combine()
++
+         modules = [ module
+                     for name, module in sys.modules.items()
+                     if self.wantModuleCoverage(name, module) ]

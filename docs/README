@@ -1,0 +1,2 @@
+nose-coverage-parallel is a nose patch for the coverage plugin to enable
+parallel coverage, so that nosetests we run get proper coverage information.
