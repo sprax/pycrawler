@@ -107,9 +107,7 @@ class FIFO(BaseFIFO):
             os.makedirs(os.path.split(self._data_path)[0])
         except OSError, exc:
             # okay if someone else just made it:
-            if exc.errno == errno.EEXIST:
-                pass
-            else:
+            if exc.errno != errno.EEXIST:
                 raise
 
         try:
@@ -117,9 +115,7 @@ class FIFO(BaseFIFO):
             open(self._data_path, 'a').close()
         except IOError, exc:
             # okay if someone else just made it:
-            if exc.errno == errno.EEXIST:
-                pass
-            else:
+            if exc.errno != errno.EEXIST:
                 raise
 
         # acquire mutex to protect on-disk state files
