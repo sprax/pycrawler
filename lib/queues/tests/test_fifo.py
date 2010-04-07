@@ -45,7 +45,7 @@ class TestFIFO(object):
             rmdir(self.test_dir)
             raise
 
-    def cleanUp(self):
+    def tearDown(self):
         rmdir(self.test_dir)
 
     def test_fifo_get(self):
