@@ -1,4 +1,13 @@
 
+"""
+Deal with queue for new links.
+"""
+
+__copyright__ = "Copyright 2010, Nokia Corporation"
+__license__ = "MIT License"
+__version__ = "0.1"
+__revision__ == "$Id$"
+
 import os
 import errno
 
@@ -104,6 +113,7 @@ class HostSpreader(Analyzer):
         return h
 
     def find_queues(self):
+        """ Generator that yields queues in data path. """
         for i in os.listdir(self.qdir):
             path = os.path.join(self.qdir, i)
             if os.path.isdir(path):
@@ -163,6 +173,8 @@ def init_host_queues(topdir, num=10):
         except OSError as exc:
             if exc.errno != errno.EEXIST:
                 raise
+
+    # Call the dumping ground queue 99999 for now.
     try:
         os.makedirs(os.path.join(topdir, 'url-queue-%05d.d' % 99999))
     except OSError as exc:

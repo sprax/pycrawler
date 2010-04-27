@@ -2,12 +2,13 @@
 """
 multiprocessing wrapper around pycurl
 """
-#$Id$
+
 __author__ = "John R. Frank"
-__copyright__ = "Copyright 2009, John R. Frank"
+__copyright__ = "Copyright 2009, John R. Frank.  Copyright 2010, Nokia Corporation."
 __credits__ = ["The libcurl Team"]
 __license__ = "MIT License"
 __version__ = "0.1"
+__revision__ = "$Id$"
 
 # Constants representing URL state, stored as depth values above zero
 READY = 0       # 0 means a human inserted it, i.e. zero link depth

@@ -3,11 +3,12 @@
 A document processing chain for PyCrawler.
 
 """
-#$Id$
+
 __author__ = "John R. Frank"
-__copyright__ = "Copyright 2009, John R. Frank"
+__copyright__ = "Copyright 2009, John R. Frank.  Copyright 2010, Nokia Corporation."
 __license__ = "MIT License"
 __version__ = "0.1"
+__revision__ = "$Id$"
 
 import Queue
 from ctypes import sizeof  # For checking overflow of multiprocessing.Value
@@ -56,6 +57,7 @@ class FetchInfo(Analyzable):
     @classmethod
     def create(self, url=None, raw_data=None, depth=None, start=None, end=None,
                state=None, last_modified=None, links=[]):
+        """ Create an instance of FetchInfo. """
         scheme, hostname, port, relurl = get_parts(url)
         hostkey = '%s://%s' % (scheme, hostname)
         if port:
