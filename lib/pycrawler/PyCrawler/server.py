@@ -6,11 +6,12 @@ CrawlStateManager.
 This runs Fetcher instances on batches of URLs provided by the
 CrawlStateManager.
 """
-#$Id$
+
 __author__ = "John R. Frank"
-__copyright__ = "Copyright 2009, John R. Frank"
+__copyright__ = "Copyright 2009, John R. Frank.  Copyright 2010, Nokia Corporation."
 __license__ = "MIT License"
 __version__ = "0.1"
+__revision__ = "$Id$"
 
 import os
 import logging
@@ -54,8 +55,7 @@ class FetchServer(Process):
         self.manager = None # created below
         self.reload = multiprocessing.Event()
         self.reload.clear()
-        mgr = multiprocessing.Manager()
-        self.relay = mgr.Namespace()
+        self.relay = None
         self.config = None
 
         self.ManagerClass.register("put", callable=self.put)
@@ -161,6 +161,7 @@ class FetchServer(Process):
         try:
             self.prepare_process()
             self.manager = self.ManagerClass(self.address, self.authkey)
+            self.relay = self.manager.Namespace()
             self.manager.start()
 
             # We need to wait here, so we can properly shut it down later.
