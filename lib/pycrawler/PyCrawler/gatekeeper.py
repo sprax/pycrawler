@@ -7,7 +7,7 @@ Functionality to limit which URLs we crawl.
 __copyright__ = "Copyright 2010, Nokia Corporation"
 __license__ = "MIT License"
 __version__ = "0.1"
-__revision__ = "$Id: 0 0 0 $"
+__revision__ = "$Id$"
 
 from robotexclusionrulesparser import RobotExclusionRulesParser
 
