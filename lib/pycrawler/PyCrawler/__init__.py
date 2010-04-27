@@ -11,7 +11,7 @@ See PyCrawler/license.txt
 """
 
 __author__ = "John R. Frank"
-__copyright__ = "Copyright 2009, John R. Frank"
+__copyright__ = "Copyright 2009, John R. Frank.  Copyright 2010, Nokia Corporation."
 __license__ = "MIT License"
 __version__ = "0.1"
 __revision__ = "$Id$"
