@@ -2,11 +2,12 @@
 """
 Logging for pycrawler
 """
-#$Id: __init__.py 129 2010-01-19 05:55:49Z postshift@gmail.com $
+
 __author__ = "Joseph Malicki"
-__copyright__ = "Copyright 2010, MetaCarta, Inc."
+__copyright__ = "Copyright 2010, MetaCarta, Inc.  Copyright 2010, Nokia Corporation."
 __license__ = "MIT License"
 __version__ = "0.1"
+__revision__ = "$Id$"
 
 def configure_logger():
     """ initial logger configuration.  can be overridden. """

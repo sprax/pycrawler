@@ -7,11 +7,12 @@ the hostkey for the URL.  A hostkey is scheme://hostname:port
 While parsing URLs, the add_url method might raise BadFormat or
 UnsupportedScheme exceptions.
 """
-# $Id$
+
 __author__ = "John R. Frank"
-__copyright__ = "Copyright 2009, John R. Frank"
+__copyright__ = "Copyright 2009, John R. Frank.  Copyright 2010, Nokia Corporation."
 __license__ = "MIT License"
 __version__ = "0.1"
+__revision__ = "$Id$"
 
 import os
 import re

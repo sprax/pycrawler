@@ -9,11 +9,12 @@ which links it follows.
 
 See PyCrawler/license.txt
 """
-#$Id$
+
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
+__revision__ = "$Id$"
 
 import url
 from server import FetchServer, FetchClient, PORT, AUTHKEY
