@@ -1,4 +1,6 @@
-# $Id: setup.py 272 2010-03-24 22:30:07Z jmalicki $
+#!/usr/bin/python
+
+__revision__ = "$Id$"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
@@ -6,10 +8,8 @@ __maintainer__ = "John R. Frank"
 
 from setuptools import setup
 
-version = "0.1"
-
 setup(name="multiprocessingng",
-      version=version,
+      version=__version__,
       description="Wrapper around multiprocessing to fix broken parts.",
       long_description="""\
 Wrap multiprocessing.  Fix broken parts, allowing for resiliency in face of error,

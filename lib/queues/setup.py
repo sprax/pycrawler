@@ -1,4 +1,6 @@
-# $Id$
+#!/usr/bin/python
+
+__revision__ = "$Id$"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
@@ -6,10 +8,8 @@ __maintainer__ = "John R. Frank"
 
 from setuptools import setup
 
-version = "0.1"
-
 setup(name="PersistentQueue",
-      version=version,
+      version=__version__,
       description="FIFO and priority queue interfaces to a set of flat-files on disk",
       long_description="""\
 Provides a PersistentQueue.FIFO and PersistentQueue.RecordFactory of non-memory-bound sorting routines.   PersistentQueue.BatchPriorityQueue provides an orderable storage mechanism for namedtuples that represent state of objects, such as hosts being crawled.""",

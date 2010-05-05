@@ -2,7 +2,7 @@
 """
 tests for PersistentQueue/record.py
 """
-# $Id: test_records.py 115 2010-01-18 16:34:51Z postshift@gmail.com $
+# $Id$
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"

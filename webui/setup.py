@@ -1,4 +1,8 @@
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
+
+__revision__ = "$Id$"
+
 try:
     from setuptools import setup, find_packages
 except ImportError:

@@ -1,4 +1,6 @@
-# $Id$
+#!/usr/bin/python2.6
+
+__revision__ = "$Id$"
 __copyright__ = "Copyright 2009, John R. Frank"
 __license__ = "MIT License"
 __version__ = "0.1"
@@ -6,10 +8,8 @@ __maintainer__ = "John R. Frank"
 
 from setuptools import setup
 
-version = "0.1"
-
 setup(name="PyCrawler",
-      version=version,
+      version=__version__,
       description="A python-based distributed web crawler.",
       long_description="""
 Provides a web crawler.
@@ -26,7 +26,7 @@ Provides a web crawler.
       url="http://code.google.com/p/pycrawler/",
       license="MIT",
       zip_safe=False,
-      install_requires=['pycurl==7.18.2',
+      install_requires=['pycurl',
                         'PersistentQueue',
                         'multiprocessingng',
                         'daemon',
@@ -43,4 +43,3 @@ Provides a web crawler.
       """,
       packages=["PyCrawler"],
       )
-
