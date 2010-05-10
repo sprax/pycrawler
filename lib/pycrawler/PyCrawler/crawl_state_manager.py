@@ -26,7 +26,8 @@ from analyzer_chain import Analyzer, AnalyzerChain, GetLinks, LogInfo, SpeedDiag
 from process import Process, multi_syslog
 import url
 
-HostRecord = define_record("HostRecord", "next start bytes hits hostname data")
+HostRecord = define_record("HostRecord", ["next", "start", "bytes", "hits",
+                                          "hostname", "data"])
 HostRecord_template = (int, int, int, int, str, JSON)
 
 class CrawlStateAnalyzer(Analyzer):
