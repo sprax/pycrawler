@@ -47,7 +47,7 @@ class TestFetcher:
             if e.errno != errno.ENOENT:
                 raise
 
-    def test_fetcher(self, timeout=20):
+    def test_fetcher(self, timeout=5):
         """ Test that fetcher can download several URLs as specified. """
         # make factories for creating surrogate HostRecord and RawFetchRecords for testing:
 
@@ -71,9 +71,8 @@ class TestFetcher:
 
         while fetcher.is_alive() and time.time() < t1 + timeout:
             try:
-                rec = outQ.get_nowait()
+                rec = outQ.get(timeout=0.1)
             except Queue.Empty:
-                time.sleep(0.1)
                 continue
             if isinstance(rec, FetchInfo):
                 count += 1
@@ -89,9 +88,9 @@ class TestFetcher:
         fetcher.stop()
         while multiprocessing.active_children():
             try:
-                rec = outQ.get_nowait()
+                rec = outQ.get(timeout=0.1)
             except Queue.Empty:
-                time.sleep(0.1)
+                continue
 
         assert_false(failures)
 
