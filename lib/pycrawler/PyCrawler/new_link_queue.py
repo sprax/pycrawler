@@ -6,7 +6,7 @@ Deal with queue for new links.
 __copyright__ = "Copyright 2010, Nokia Corporation"
 __license__ = "MIT License"
 __version__ = "0.1"
-__revision__ == "$Id$"
+__revision__ = "$Id$"
 
 import os
 import errno
