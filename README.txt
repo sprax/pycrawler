@@ -17,6 +17,10 @@ in .profile (or whatever your environment uses).
 
 PATCHES
 =========================
+Released versions coverage.py and nose's coverage plugins do not
+properly support software that spawns multiple processes via fork.
+To get coverage information across all processes requires the following:
+
 Requires python coverage.py from trunk (post-3.3.1, until 3.3.2 is released):
  $ hg clone http://bitbucket.org/ned/coveragepy
  $ cd coveragepy
@@ -24,6 +28,9 @@ Requires python coverage.py from trunk (post-3.3.1, until 3.3.2 is released):
 
 Also requires a patched nose:
  see docs/README 
+
+Alternatively, one can comment out the 'cover_parallel' options
+in the setup.cfg's.
 
 INSTALLING
 =========================

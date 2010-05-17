@@ -59,6 +59,7 @@ def main(options, args):
     ac.append(GetLinks, 1)
     ac.append(SpeedDiagnostics, 1)
 
+    crawl_state_mgr = CrawlStateManager()
 
     # Prepare an instance of Fetcher, which can be anything that
     # implements the attrs and methods of Fetcher.Fetcher.
@@ -118,7 +119,7 @@ def wait_for_finish(ac, fetcher, quiet=False):
 
     from signal import signal, SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM
     for sig in (SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGTERM):
-        signal(sig, lambda a,b: fetcher._go.clear())
+        signal(sig, lambda a,b: (fetcher.stop(), ac.stop()))
 
     logger.debug("calling AnalyzerChain.start()")
     ac.start()
