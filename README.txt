@@ -10,6 +10,21 @@ lib/pycrawler:
 webui: 
   Contains PyCrawlerWebUI module.  depends on PyCrawler.
 
+RECOMMENDED ENVIRONMENT
+=========================
+install virtualenv, and add virtualenv directory's bin/ to path
+in .profile (or whatever your environment uses).
+
+PATCHES
+=========================
+Requires python coverage.py from trunk (post-3.3.1, until 3.3.2 is released):
+ $ hg clone http://bitbucket.org/ned/coveragepy
+ $ cd coveragepy
+ $ python setup.py install
+
+Also requires a patched nose:
+ see docs/README 
+
 INSTALLING
 =========================
 
