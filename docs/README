@@ -1,6 +1,18 @@
 nose-coverage-parallel is a nose patch for the coverage plugin to enable
 parallel coverage, so that nosetests we run get proper coverage information.
 
+The patch was developed for nose 0.11.3, but works with nose 0.11.1 and
+likely works with other similar versions, as it only changes the coverage
+plugin.
+
+ In nose source directory (download source from 
+http://pypi.python.org/pypi/nose), run 
+
+   patch -p1 < /path/to/pycrawler/docs/nose-coverage-parallel.diff
+   setup.py install
+
+And you will now have a patched nose.
+
 Also, we require a post-3.3.1 version of coverage that hasn't yet been
 released.
 
