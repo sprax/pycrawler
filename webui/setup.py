@@ -26,6 +26,12 @@ setup(
         "zope.sqlalchemy >= 0.4 ",
         "repoze.tm2 >= 1.0a4",
         "routes < 1.12", # 1.12 is broken
+
+        # Pylons 0.10rc1 deprecates TurboGears 2.0.3's use of pylons.
+        "Pylons < 0.10",
+        # Not strictly needed for production, but needed for development,
+        # and no good way to get those dependencies.
+        "tg.devtools",
                         ],
     setup_requires=["PasteScript >= 1.7"],
     paster_plugins=['PasteScript', 'Pylons', 'TurboGears2', 'tg.devtools'],
