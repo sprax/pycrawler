@@ -31,7 +31,7 @@ PORT = 18041 # default port is the second prime number above 18000
 AUTHKEY = "APPLE"
 
 class FetchServer(Process):
-    class ManagerClass(multiprocessing.managers.BaseManager):
+    class ManagerClass(multiprocessing.managers.SyncManager):
         pass
 
     def __init__(self, go=None, address=("", PORT), authkey=AUTHKEY, qdir=None, debug=False):
@@ -161,8 +161,8 @@ class FetchServer(Process):
         try:
             self.prepare_process()
             self.manager = self.ManagerClass(self.address, self.authkey)
-            self.relay = self.manager.Namespace()
             self.manager.start()
+            self.relay = self.manager.Namespace()
 
             # We need to wait here, so we can properly shut it down later.
             # Unfortunately, there is a delay between starting a manager, and
@@ -331,7 +331,7 @@ if __name__ == "__main__":
 
     from signal import signal, SIGINT, SIGHUP, SIGTERM, SIGQUIT
     def stop(a, b):
-        print "Attempting test.stop()"
+        print "Attempting test.stop() (may take several seconds)"
         test.stop()
     for sig in [SIGINT, SIGHUP, SIGTERM, SIGQUIT]:
         signal(sig, stop)
