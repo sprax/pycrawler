@@ -1,3 +1,5 @@
+#!/usr/bin/env python2.6
+
 """
 InitFromSlots and Record come from this public discussion about how to
 implement a record-type in python:

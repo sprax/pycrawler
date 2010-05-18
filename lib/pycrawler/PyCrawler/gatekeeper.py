@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python2.6
 
 """
 Functionality to limit which URLs we crawl.

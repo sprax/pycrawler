@@ -1,4 +1,5 @@
-#!/usr/bin/python2.6
+#!/usr/bin/env python2.6
+
 """
 A set of conveniences around multiprocessing.Process and syslog
 """

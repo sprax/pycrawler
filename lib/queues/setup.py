@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python2.6
 
 __revision__ = "$Id$"
 __copyright__ = "Copyright 2009, John R. Frank"

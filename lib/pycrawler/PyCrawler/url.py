@@ -1,4 +1,5 @@
-#!/usr/bin/python2.6
+#!/usr/bin/env python2.6
+
 """
 URL.packer provides a method called add_url that parses URLs and
 appends them to lists in a dictionary.  The keys of the dictionary are

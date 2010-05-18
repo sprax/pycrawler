@@ -1,4 +1,5 @@
-#!/usr/bin/python2.6
+#!/usr/bin/env python2.6
+
 """
 PyCrawler is python module that uses pycurl (libcurl) to provide a
 high-throughput crawler that can scale to (probably) hundreds of

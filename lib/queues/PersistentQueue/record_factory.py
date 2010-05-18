@@ -1,4 +1,5 @@
-#!/usr/bin/python2.6
+#!/usr/bin/env python2.6
+
 """
 Simple tools for serializing and deserializing tuples of simple python
 data types, and sorting flat-files and lists of these tuples.

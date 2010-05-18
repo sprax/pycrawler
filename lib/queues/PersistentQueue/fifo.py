@@ -1,3 +1,5 @@
+#!/usr/bin/env python2.6
+
 """
 PersistentQueue.FIFO provides a queue-like interface to a set of flat
 files stored on disk.

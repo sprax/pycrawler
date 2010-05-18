@@ -1,4 +1,5 @@
-#!/usr/bin/python2.6
+#!/usr/bin/env python2.6
+
 """
 PersistentQueue provides FIFO and priority queue interfaces to a set
 of flat files stored on disk.
