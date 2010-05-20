@@ -18,7 +18,7 @@ __version__ = "0.1"
 __revision__ = "$Id$"
 
 import url
-from server import FetchServer, FetchClient, PORT, AUTHKEY
+from server import FetchServer, FetchClient, PORT, AUTHKEY, run_server
 from fetcher import Fetcher
 from analyzer_chain import AnalyzerChain, Analyzer, GetLinks, LogInfo, \
     SpeedDiagnostics, FetchInfo, FetchInfoFIFO

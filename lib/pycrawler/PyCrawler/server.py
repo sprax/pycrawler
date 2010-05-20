@@ -321,11 +321,11 @@ class TestHarness(Process):
         finally:
             self.logger.info("Exiting TestHarness.")
 
-if __name__ == "__main__":
+def run_server(sys_args):
     from optparse import OptionParser
     parser = OptionParser("runs a TestHarness instance")
     parser.add_option("--debug", action="store_true", dest="debug", default=False, help="Sets debug to True everywhere.")
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(sys_args)
 
     test = TestHarness(debug=options.debug)
     test.start()
