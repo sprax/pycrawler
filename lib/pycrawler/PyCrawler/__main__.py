@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+Run PyCrawler as a standalone program.
+"""
+
 __author__ = "John R. Frank"
 __copyright__ = "Copyright 2010, Nokia Corporation."
 __license__ = "MIT License"
