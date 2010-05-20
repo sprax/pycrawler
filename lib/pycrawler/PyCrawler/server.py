@@ -56,7 +56,7 @@ class FetchServer(Process):
         self.manager = None # created below
         self.reload = multiprocessing.Event()
         self.reload.clear()
-        self.relay = None
+        self.relay_config = None
         self.config = None
 
         self.ManagerClass.register("put", callable=self.put)
@@ -72,10 +72,7 @@ class FetchServer(Process):
         self.fetcher = None
 
     def get_config(self):
-        if hasattr(self.relay, 'config'):
-            return self.relay.config
-        else:
-            return None
+        return self.relay_config
 
     def put(self, yzable):
         assert self.link_ac
@@ -85,17 +82,21 @@ class FetchServer(Process):
         "Passes config into the relay"
         #self.logger.debug('set_config: %r' % config)
         try:
-            self.relay.config = config
+            self.relay_config = config
             self.reload.set()
             self.logger.debug("set_config")
         except Exception, exc:
             multi_syslog(exc, logger=self.logger.warning)
+            raise
 
     def prepare_process(self):
-        super(FetchServer, self).prepare_process()
-        self.logger = logging.getLogger('PyCrawler.FetchServer')
         self.link_ac = get_new_link_queue_analyzerchain(qdir = self.qdir,
                                                         whitelist = 'metacarta.txt')
+        self.manager = self.ManagerClass(self.address, self.authkey)
+        self.manager.start()
+
+        super(FetchServer, self).prepare_process()
+        self.logger = logging.getLogger('PyCrawler.FetchServer')
         self.logger.info("Loaded link_ac")
 
     def run_once(self, qgen):
@@ -103,9 +104,10 @@ class FetchServer(Process):
         if self.reload.is_set():
             self.logger.info("Reloaded!")
             if self.valid_new_config():
-                self.config = copy(self.relay.config)
+                self.config = copy(self.relay_config)
                 self.logger.debug("creating & starting CrawlStateManager")
-                self.reload.clear()
+            # FIXME: racy, but we do need to clear.
+            self.reload.clear()
 
         if self.config is None:
             self.logger.debug("Waiting for config")
@@ -161,9 +163,6 @@ class FetchServer(Process):
         """
         try:
             self.prepare_process()
-            self.manager = self.ManagerClass(self.address, self.authkey)
-            self.manager.start()
-            self.relay = self.manager.Namespace()
 
             # We need to wait here, so we can properly shut it down later.
             # Unfortunately, there is a delay between starting a manager, and
@@ -214,21 +213,22 @@ class FetchServer(Process):
         2) frac_to_fetch that is a float 
         3) fetcher_options that is a dict
         """
-        if not hasattr(self.relay, "config"):
-            self.logger.info("invalid config: no config set on relay")
+
+        config = self.relay_config
+
+        try:
+            if "frac_to_fetch" not in config or \
+                    not isinstance(config["frac_to_fetch"], float):
+                self.logger.info("invalid config: frac_to_fetch should be float")
+                return False
+            elif "fetcher_options" not in config or \
+                    not isinstance(config["fetcher_options"], dict):
+                self.logger.info("invalid config: missing fetcher_options")
+                return False
+            # must be valid
+            return True
+        except:
             return False
-        else:
-            config = self.relay.config
-        if "frac_to_fetch" not in config or \
-                not isinstance(config["frac_to_fetch"], float):
-            self.logger.info("invalid config: frac_to_fetch should be float")
-            return False
-        elif "fetcher_options" not in config or \
-                not isinstance(config["fetcher_options"], dict):
-            self.logger.info("invalid config: missing fetcher_options")
-            return False
-        # must be valid
-        return True
 
 class FetchClient(object):
     """
@@ -281,8 +281,8 @@ class TestHarness(Process):
             fs = FetchServer(debug=self._debug, qdir='TestHarnessQueue')
             fs.start()
 
-            sleep(1)
-
+            # Wait until fully started.
+            fs._go.wait()
             self.logger.info("Creating & configurating FetchClient")
 
             fc = FetchClient()
